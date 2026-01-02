@@ -1,25 +1,96 @@
 "use client";
 
-import { Box, LinearProgress, Paper, Stack, Typography } from "@mui/material";
-import { useRouter } from "next/navigation";
+import { Box, CircularProgress, LinearProgress, Paper, Stack, Typography, Alert } from "@mui/material";
+import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";
+import { getCampaignStatus } from "@/lib/api";
 
 export default function LoadingPage() {
   const router = useRouter();
-  const [progress, setProgress] = React.useState(12);
+  const searchParams = useSearchParams();
+  const jobId = searchParams.get("job_id");
+  
+  const [status, setStatus] = React.useState<string>("pending");
+  const [progress, setProgress] = React.useState(0);
+  const [error, setError] = React.useState<string | null>(null);
+  const [campaignId, setCampaignId] = React.useState<string | null>(null);
+  const [isPolling, setIsPolling] = React.useState(true);
 
   React.useEffect(() => {
-    const tick = window.setInterval(() => {
-      setProgress((p) => Math.min(95, p + Math.random() * 18));
-    }, 200);
-    const t = window.setTimeout(() => {
-      router.replace("/review");
-    }, 1200);
-    return () => {
-      window.clearInterval(tick);
-      window.clearTimeout(t);
+    // If no job_id, redirect back to prompt
+    if (!jobId) {
+      router.push("/prompt");
+      return;
+    }
+
+    const pollStatus = async () => {
+      try {
+        const jobStatus = await getCampaignStatus(jobId);
+        setStatus(jobStatus.status);
+        setProgress(jobStatus.progress_percentage);
+        
+        // Store campaign_id when available
+        if (jobStatus.campaign_id) {
+          setCampaignId(jobStatus.campaign_id);
+        }
+        
+        if (jobStatus.status === "completed") {
+          setIsPolling(false);
+          // Wait 2 seconds before redirecting to show completion
+          if (jobStatus.campaign_id) {
+            setTimeout(() => router.push(`/review?campaignId=${jobStatus.campaign_id}`), 2000);
+          } else {
+            // Fallback if campaign_id is not available
+            setTimeout(() => router.push("/dashboard"), 2000);
+          }
+        } else if (jobStatus.status === "failed") {
+          setIsPolling(false);
+          setError(jobStatus.error_message || "Campaign generation failed");
+        }
+      } catch (err) {
+        console.error("Failed to get job status:", err);
+        // Continue polling even if one request fails
+      }
     };
-  }, [router]);
+
+    // Initial poll
+    pollStatus();
+
+    // Poll every 5 seconds if still active
+    let interval: NodeJS.Timeout | null = null;
+    if (isPolling) {
+      interval = setInterval(pollStatus, 5000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [jobId, router, isPolling]);
+
+  const getStatusMessage = () => {
+    switch (status) {
+      case "pending":
+        return "Your campaign is queued...";
+      case "processing":
+        return "Our creative team is working on your campaign...";
+      case "completed":
+        return "Campaign complete! Redirecting...";
+      case "failed":
+        return "Campaign generation failed";
+      default:
+        return "Processing...";
+    }
+  };
+
+  const getStatusDescription = () => {
+    if (status === "completed") {
+      return "Your campaign is ready for review!";
+    }
+    if (status === "failed") {
+      return "Something went wrong. Please try again or contact support.";
+    }
+    return "This takes approximately 10 minutes. We'll email you when it's ready!";
+  };
 
   return (
     <Box sx={{ display: "grid", placeItems: "center", minHeight: { xs: 420, sm: 520 } }}>
@@ -30,19 +101,54 @@ export default function LoadingPage() {
           borderColor: "divider",
           p: { xs: 3, sm: 4 },
           width: "100%",
-          maxWidth: 520,
+          maxWidth: 560,
         }}
       >
-        <Stack spacing={2}>
-          <Stack spacing={0.5}>
+        <Stack spacing={3} alignItems="center">
+          {status !== "failed" && (
+            <CircularProgress size={60} />
+          )}
+          
+          <Stack spacing={1} alignItems="center" sx={{ width: "100%" }}>
             <Typography variant="h5" sx={{ fontWeight: 900 }}>
-              Generating content…
+              {getStatusMessage()}
             </Typography>
-            <Typography color="text.secondary">
-              Stubbed loading step (no real AI yet). Redirecting to review.
+            <Typography color="text.secondary" align="center">
+              {getStatusDescription()}
             </Typography>
           </Stack>
-          <LinearProgress variant="determinate" value={progress} />
+
+          <Box sx={{ width: "100%" }}>
+            <LinearProgress 
+              variant="determinate" 
+              value={progress} 
+              sx={{ height: 8, borderRadius: 4 }}
+            />
+            <Typography 
+              variant="body2" 
+              color="text.secondary" 
+              align="center" 
+              sx={{ mt: 1 }}
+            >
+              {progress}% complete • {status}
+            </Typography>
+          </Box>
+
+          {error && (
+            <Alert severity="error" sx={{ width: "100%" }}>
+              {error}
+            </Alert>
+          )}
+
+          {status !== "failed" && (
+            <Typography 
+              variant="caption" 
+              color="text.secondary" 
+              sx={{ maxWidth: "90%", textAlign: "center" }}
+            >
+              💡 You can close this page. We'll send an email when your campaign is ready.
+            </Typography>
+          )}
         </Stack>
       </Paper>
     </Box>

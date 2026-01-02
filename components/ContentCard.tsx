@@ -4,17 +4,14 @@ import type { ContentItem } from "@/lib/types";
 import {
   Box,
   Card,
-  CardActionArea,
   CardContent,
-  CardMedia,
   IconButton,
   Stack,
   TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import CancelIcon from "@mui/icons-material/Cancel";
+import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
 import CloseIcon from "@mui/icons-material/Close";
@@ -22,23 +19,32 @@ import React from "react";
 
 export type ContentCardProps = {
   item: ContentItem;
-  onOpen: (item: ContentItem) => void;
-  onApprove: (id: string) => void;
-  onReject: (id: string) => void;
   onSaveCaption: (id: string, caption: string) => void;
+  onDelete: (id: string) => void;
 };
 
 export default function ContentCard({
   item,
-  onOpen,
-  onApprove,
-  onReject,
   onSaveCaption,
+  onDelete,
 }: ContentCardProps) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(item.caption);
 
   React.useEffect(() => setDraft(item.caption), [item.caption]);
+
+  const handleSave = () => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== item.caption) {
+      onSaveCaption(item.id, trimmed);
+    }
+    setEditing(false);
+  };
+
+  const handleBlur = () => {
+    // Auto-save on blur
+    handleSave();
+  };
 
   return (
     <Card
@@ -52,57 +58,99 @@ export default function ContentCard({
         flexDirection: "column",
       }}
     >
-      <CardActionArea onClick={() => onOpen(item)} sx={{ flexGrow: 1 }}>
-        <CardMedia
-          component="img"
-          height={220}
-          image={item.imageUrl}
-          alt="Generated post"
-          sx={{ objectFit: "cover" }}
-        />
-        <CardContent>
-          <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.75 }}>
-            Caption
-          </Typography>
-          {!editing ? (
-            <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "pre-wrap" }}>
-              {item.caption}
-            </Typography>
-          ) : (
-            <TextField
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              multiline
-              minRows={4}
-              fullWidth
-              size="small"
-            />
-          )}
-        </CardContent>
-      </CardActionArea>
+      {/* Media Section */}
+      <Box
+        sx={{
+          position: "relative",
+          width: "100%",
+          height: 280,
+          bgcolor: "grey.100",
+        }}
+      >
+        {item.assetType === "video" && item.videoUrl ? (
+          <video
+            src={item.videoUrl}
+            autoPlay
+            muted
+            loop
+            playsInline
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+          />
+        ) : item.assetType === "image" && item.imageUrl ? (
+          <Box
+            component="img"
+            src={item.imageUrl}
+            alt="Generated content"
+            sx={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+          />
+        ) : null}
+      </Box>
 
+      {/* Caption Section */}
+      <CardContent sx={{ flexGrow: 1 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.75 }}>
+          Caption
+        </Typography>
+        {!editing ? (
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {item.caption}
+          </Typography>
+        ) : (
+          <TextField
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={handleBlur}
+            multiline
+            minRows={4}
+            fullWidth
+            size="small"
+            autoFocus
+            placeholder="Enter caption..."
+          />
+        )}
+      </CardContent>
+
+      {/* Action Buttons */}
       <Box sx={{ px: 1.25, pb: 1.25 }}>
-        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-          <Stack direction="row" spacing={0.5}>
-            <Tooltip title="Approve">
-              <IconButton
-                aria-label="Approve"
-                color="success"
-                onClick={() => onApprove(item.id)}
-              >
-                <CheckCircleIcon />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Reject (one click)">
-              <IconButton aria-label="Reject" color="error" onClick={() => onReject(item.id)}>
-                <CancelIcon />
-              </IconButton>
-            </Tooltip>
-          </Stack>
+        <Stack
+          direction="row"
+          spacing={1}
+          alignItems="center"
+          justifyContent="space-between"
+        >
+          <Tooltip title="Delete content">
+            <IconButton
+              aria-label="Delete"
+              color="error"
+              onClick={() => onDelete(item.id)}
+              size="small"
+            >
+              <DeleteIcon />
+            </IconButton>
+          </Tooltip>
 
           {!editing ? (
             <Tooltip title="Edit caption">
-              <IconButton aria-label="Edit" onClick={() => setEditing(true)}>
+              <IconButton
+                aria-label="Edit"
+                onClick={() => setEditing(true)}
+                size="small"
+              >
                 <EditIcon />
               </IconButton>
             </Tooltip>
@@ -112,10 +160,8 @@ export default function ContentCard({
                 <IconButton
                   aria-label="Save"
                   color="primary"
-                  onClick={() => {
-                    onSaveCaption(item.id, draft.trim());
-                    setEditing(false);
-                  }}
+                  onClick={handleSave}
+                  size="small"
                 >
                   <SaveIcon />
                 </IconButton>
@@ -127,6 +173,7 @@ export default function ContentCard({
                     setDraft(item.caption);
                     setEditing(false);
                   }}
+                  size="small"
                 >
                   <CloseIcon />
                 </IconButton>
@@ -138,5 +185,3 @@ export default function ContentCard({
     </Card>
   );
 }
-
-

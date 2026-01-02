@@ -1,8 +1,14 @@
 export type ContentStatus = "pending" | "approved" | "rejected";
 
+export type AssetType = "image" | "video";
+
 export type ContentItem = {
   id: string;
-  imageUrl: string;
+  userId?: string;
+  campaignId?: string;
+  assetType: AssetType;
+  imageUrl?: string;
+  videoUrl?: string;
   caption: string;
   status: ContentStatus;
   regenerationRequested?: boolean;
@@ -26,3 +32,4 @@ export type ScheduleAssignment = {
    */
   order?: number;
 };
+
