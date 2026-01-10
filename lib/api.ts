@@ -224,6 +224,104 @@ export async function sendMarketingChatMessage(
 }
 
 // ============================================================================
+// Campaign API
+// ============================================================================
+
+export interface Campaign {
+  id: string;
+  user_id: string;
+  campaign_name: string;
+  brief_text?: string;
+  status: "draft" | "in_progress" | "completed" | "failed";
+  content_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampaignListResponse {
+  success: boolean;
+  campaigns: Campaign[];
+  total: number;
+}
+
+export interface ActiveCampaignResponse {
+  success: boolean;
+  campaign: Campaign | null;
+}
+
+/**
+ * Get all campaigns for a user
+ * 
+ * @param userId - User ID
+ * @param limit - Maximum number of campaigns to return
+ * @returns List of campaigns with metadata
+ * @throws Error if request fails
+ */
+export async function listUserCampaigns(
+  userId: string,
+  limit: number = 50
+): Promise<Campaign[]> {
+  const response = await fetch(
+    `${API_BASE_URL}/campaigns/user/${userId}?limit=${limit}`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to list campaigns";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // If parsing fails, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  const data: CampaignListResponse = await response.json();
+  return data.campaigns;
+}
+
+/**
+ * Get the user's active campaign (most recent completed or in_progress)
+ * 
+ * @param userId - User ID
+ * @returns Active campaign or null if user has no campaigns
+ * @throws Error if request fails
+ */
+export async function getActiveCampaign(
+  userId: string
+): Promise<Campaign | null> {
+  const response = await fetch(
+    `${API_BASE_URL}/campaigns/user/${userId}/active`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to get active campaign";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // If parsing fails, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  const data: ActiveCampaignResponse = await response.json();
+  return data.campaign;
+}
+
+// ============================================================================
 // Content Items API
 // ============================================================================
 

@@ -1,13 +1,18 @@
 "use client";
 
 import TimeSelectDialog from "@/components/TimeSelectDialog";
+import CampaignHeader from "@/components/CampaignHeader";
 import {
-  getApprovedItems,
   getSchedule,
   removeSchedule,
   setScheduleOrderForDate,
   upsertSchedule,
 } from "@/lib/store";
+import {
+  getActiveCampaign,
+  fetchCampaignContent,
+  type Campaign,
+} from "@/lib/api";
 import { getMonthGrid } from "@/lib/monthGrid";
 import type { ContentItem, ScheduleAssignment } from "@/lib/types";
 import { useSession } from "next-auth/react";
@@ -19,6 +24,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Divider,
   IconButton,
   Paper,
@@ -39,8 +45,10 @@ export default function DashboardPage() {
   const { data: session } = useSession();
   const userId = session?.user?.id;
 
+  const [campaign, setCampaign] = React.useState<Campaign | null>(null);
   const [approved, setApproved] = React.useState<ContentItem[]>([]);
   const [schedule, setSchedule] = React.useState<ScheduleAssignment[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [toast, setToast] = React.useState<string | null>(null);
 
   const today = React.useMemo(() => new Date(), []);
@@ -58,10 +66,44 @@ export default function DashboardPage() {
   } | null>(null);
   const [hoverDateISO, setHoverDateISO] = React.useState<string | null>(null);
 
-  const refresh = React.useCallback(() => {
-    setApproved(getApprovedItems(userId));
-    setSchedule(getSchedule(userId));
+  // Load active campaign and its approved content
+  const loadCampaignContent = React.useCallback(async () => {
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Get active campaign
+      const activeCampaign = await getActiveCampaign(userId);
+      setCampaign(activeCampaign);
+      
+      if (activeCampaign) {
+        // Fetch campaign content
+        const content = await fetchCampaignContent(activeCampaign.id, userId);
+        
+        // Filter approved items
+        const approvedItems = content.filter(item => item.status === "approved");
+        setApproved(approvedItems);
+      } else {
+        setApproved([]);
+      }
+      
+      // Load schedule (still from localStorage for now)
+      setSchedule(getSchedule(userId));
+    } catch (error) {
+      console.error("Failed to load campaign content:", error);
+      setApproved([]);
+    } finally {
+      setLoading(false);
+    }
   }, [userId]);
+
+  const refresh = React.useCallback(() => {
+    loadCampaignContent();
+  }, [loadCampaignContent]);
 
   React.useEffect(() => {
     refresh();
@@ -168,22 +210,37 @@ export default function DashboardPage() {
     setHoverDateISO(null);
   };
 
+  if (loading) {
+    return (
+      <Stack spacing={2.5} alignItems="center" justifyContent="center" sx={{ minHeight: 400 }}>
+        <CircularProgress />
+        <Typography color="text.secondary">Loading dashboard...</Typography>
+      </Stack>
+    );
+  }
+
   return (
     <Stack spacing={2.5}>
+      <Stack spacing={0.25}>
+        <Typography variant="h5" sx={{ fontWeight: 900 }}>
+          Dashboard
+        </Typography>
+        <Typography color="text.secondary">
+          Drag approved items onto the calendar to schedule by day/time.
+        </Typography>
+      </Stack>
+
+      <CampaignHeader
+        campaign={campaign}
+        showActions={false}
+      />
+
       <Stack
         direction={{ xs: "column", sm: "row" }}
         spacing={1.5}
         alignItems={{ sm: "center" }}
+        justifyContent="flex-end"
       >
-        <Stack spacing={0.25} sx={{ flex: 1 }}>
-          <Typography variant="h5" sx={{ fontWeight: 900 }}>
-            Dashboard
-          </Typography>
-          <Typography color="text.secondary">
-            Drag approved items onto the calendar to schedule by day/time (UI
-            stub).
-          </Typography>
-        </Stack>
         <Button
           startIcon={<PublishIcon />}
           variant="contained"
@@ -219,7 +276,11 @@ export default function DashboardPage() {
           </Box>
           <Divider />
           <Stack spacing={1} sx={{ p: 2 }}>
-            {approved.length === 0 ? (
+            {!campaign ? (
+              <Typography color="text.secondary">
+                No active campaign. Create a campaign to get started.
+              </Typography>
+            ) : approved.length === 0 ? (
               <Typography color="text.secondary">
                 Nothing approved yet — approve items in <b>Review</b>.
               </Typography>
