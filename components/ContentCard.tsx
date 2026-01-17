@@ -5,6 +5,7 @@ import {
   Box,
   Card,
   CardContent,
+  Chip,
   IconButton,
   Stack,
   TextField,
@@ -19,12 +20,14 @@ import React from "react";
 
 export type ContentCardProps = {
   item: ContentItem;
+  campaignName?: string;
   onSaveCaption: (id: string, caption: string) => void;
   onDelete: (id: string) => void;
 };
 
 export default function ContentCard({
   item,
+  campaignName,
   onSaveCaption,
   onDelete,
 }: ContentCardProps) {
@@ -58,6 +61,29 @@ export default function ContentCard({
         flexDirection: "column",
       }}
     >
+      {/* Campaign Name Label */}
+      {campaignName && (
+        <Box sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
+          <Chip
+            label={campaignName}
+            size="small"
+            sx={{
+              bgcolor: "#FF9800",
+              color: "white",
+              fontWeight: 600,
+              height: 24,
+              maxWidth: "100%",
+              "& .MuiChip-label": {
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                px: 1,
+              },
+            }}
+          />
+        </Box>
+      )}
+
       {/* Media Section */}
       <Box
         sx={{
@@ -104,7 +130,10 @@ export default function ContentCard({
             variant="body2"
             color="text.secondary"
             sx={{
-              whiteSpace: "pre-wrap",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
               wordBreak: "break-word",
             }}
           >

@@ -394,6 +394,60 @@ export async function fetchCampaignContent(
 }
 
 /**
+ * Fetch all content items for a user across all campaigns
+ * 
+ * @param userId - User ID
+ * @param status - Optional filter by status
+ * @param limit - Maximum number of items to return (default: 100)
+ * @returns List of all content items
+ * @throws Error if request fails
+ */
+export async function fetchAllUserContent(
+  userId: string,
+  status?: string,
+  limit: number = 100
+): Promise<ContentItem[]> {
+  let url = `${API_BASE_URL}/campaigns/user/${userId}/content?limit=${limit}`;
+  if (status) {
+    url += `&status=${status}`;
+  }
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    let errorMessage = "Failed to fetch user content";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // If parsing fails, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  const data = await response.json();
+
+  // Map backend response to frontend ContentItem type
+  return data.items.map((item: any) => ({
+    id: item.id,
+    userId: item.user_id,
+    campaignId: item.campaign_id,
+    assetType: item.asset_type,
+    imageUrl: item.image_url,
+    videoUrl: item.video_url,
+    caption: item.caption,
+    status: item.status as "pending" | "approved" | "rejected",
+    createdAt: new Date(item.created_at).getTime(),
+    updatedAt: new Date(item.updated_at).getTime(),
+  }));
+}
+
+/**
  * Update the caption of a content item
  * 
  * @param contentId - Content item ID

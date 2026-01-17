@@ -1,7 +1,7 @@
 "use client";
 
 import TimeSelectDialog from "@/components/TimeSelectDialog";
-import CampaignHeader from "@/components/CampaignHeader";
+import InstagramScheduleDialog from "@/components/InstagramScheduleDialog";
 import {
   getSchedule,
   removeSchedule,
@@ -11,14 +11,21 @@ import {
 import {
   getActiveCampaign,
   fetchCampaignContent,
+  fetchAllUserContent,
+  listUserCampaigns,
   type Campaign,
 } from "@/lib/api";
 import { getMonthGrid } from "@/lib/monthGrid";
 import type { ContentItem, ScheduleAssignment } from "@/lib/types";
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import PublishIcon from "@mui/icons-material/Publish";
 import ClearIcon from "@mui/icons-material/Clear";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import InstagramIcon from "@mui/icons-material/Instagram";
+import InstagramStatusBadge from "@/components/InstagramStatusBadge";
+import { listScheduledPosts, type InstagramScheduledPost } from "@/lib/instagram";
 import {
   Alert,
   Box,
@@ -44,12 +51,15 @@ function byTime(a: ScheduleAssignment, b: ScheduleAssignment) {
 export default function DashboardPage() {
   const { data: session } = useSession();
   const userId = session?.user?.id;
+  const searchParams = useSearchParams();
 
   const [campaign, setCampaign] = React.useState<Campaign | null>(null);
-  const [approved, setApproved] = React.useState<ContentItem[]>([]);
+  const [campaigns, setCampaigns] = React.useState<Campaign[]>([]);
+  const [contentItems, setContentItems] = React.useState<ContentItem[]>([]);
   const [schedule, setSchedule] = React.useState<ScheduleAssignment[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [toast, setToast] = React.useState<string | null>(null);
+  const [instagramPosts, setInstagramPosts] = React.useState<InstagramScheduledPost[]>([]);
 
   const today = React.useMemo(() => new Date(), []);
   const [year, setYear] = React.useState(today.getFullYear());
@@ -65,8 +75,9 @@ export default function DashboardPage() {
     source: "approved" | "scheduled";
   } | null>(null);
   const [hoverDateISO, setHoverDateISO] = React.useState<string | null>(null);
+  const [instagramDialogOpen, setInstagramDialogOpen] = React.useState(false);
 
-  // Load active campaign and its approved content
+  // Load active campaign and its content
   const loadCampaignContent = React.useCallback(async () => {
     if (!userId) {
       setLoading(false);
@@ -76,26 +87,32 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       
-      // Get active campaign
+      // Get active campaign (for header display)
       const activeCampaign = await getActiveCampaign(userId);
       setCampaign(activeCampaign);
       
-      if (activeCampaign) {
-        // Fetch campaign content
-        const content = await fetchCampaignContent(activeCampaign.id, userId);
-        
-        // Filter approved items
-        const approvedItems = content.filter(item => item.status === "approved");
-        setApproved(approvedItems);
-      } else {
-        setApproved([]);
-      }
+      // Fetch ALL user campaigns (to map campaign IDs to names)
+      const allCampaigns = await listUserCampaigns(userId);
+      setCampaigns(allCampaigns);
+      
+      // Fetch ALL content items across all campaigns
+      const allContent = await fetchAllUserContent(userId);
+      setContentItems(allContent);
       
       // Load schedule (still from localStorage for now)
       setSchedule(getSchedule(userId));
+      
+      // Load Instagram scheduled posts
+      try {
+        const igPosts = await listScheduledPosts(userId);
+        setInstagramPosts(igPosts);
+      } catch (error) {
+        console.error("Failed to load Instagram posts:", error);
+        // Not critical, continue without Instagram data
+      }
     } catch (error) {
       console.error("Failed to load campaign content:", error);
-      setApproved([]);
+      setContentItems([]);
     } finally {
       setLoading(false);
     }
@@ -109,11 +126,52 @@ export default function DashboardPage() {
     refresh();
   }, [refresh]);
 
+  // Handle Instagram OAuth callback return
+  React.useEffect(() => {
+    const instagramConnected = searchParams.get("instagram_connected");
+    const instagramError = searchParams.get("instagram_error");
+
+    if (instagramConnected === "true") {
+      // User just connected Instagram, show success toast and reopen dialog
+      setToast("Instagram account connected successfully!");
+      
+      // Refresh to load the new account data
+      refresh();
+      
+      // Reopen the Instagram dialog after a brief delay
+      setTimeout(() => {
+        if (schedule.length > 0) {
+          setInstagramDialogOpen(true);
+        }
+      }, 500);
+
+      // Clean up URL
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("instagram_connected");
+      window.history.replaceState({}, "", newUrl.toString());
+    }
+
+    if (instagramError === "true") {
+      setToast("Failed to connect Instagram account. Please try again.");
+      
+      // Clean up URL
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("instagram_error");
+      window.history.replaceState({}, "", newUrl.toString());
+    }
+  }, [searchParams, schedule, refresh]);
+
   const itemsById = React.useMemo(() => {
     const m = new Map<string, ContentItem>();
-    for (const i of approved) m.set(i.id, i);
+    for (const i of contentItems) m.set(i.id, i);
     return m;
-  }, [approved]);
+  }, [contentItems]);
+
+  const campaignsById = React.useMemo(() => {
+    const m = new Map<string, Campaign>();
+    for (const c of campaigns) m.set(c.id, c);
+    return m;
+  }, [campaigns]);
 
   const assignmentByItemId = React.useMemo(() => {
     const m = new Map<string, ScheduleAssignment>();
@@ -131,6 +189,14 @@ export default function DashboardPage() {
     for (const [k, v] of m) m.set(k, v.sort(byTime));
     return m;
   }, [schedule]);
+
+  const instagramPostByContentId = React.useMemo(() => {
+    const m = new Map<string, InstagramScheduledPost>();
+    for (const p of instagramPosts) {
+      m.set(p.content_item_id, p);
+    }
+    return m;
+  }, [instagramPosts]);
 
   const monthCells = React.useMemo(
     () => getMonthGrid(year, month),
@@ -226,14 +292,9 @@ export default function DashboardPage() {
           Dashboard
         </Typography>
         <Typography color="text.secondary">
-          Drag approved items onto the calendar to schedule by day/time.
+          Drag content items onto the calendar to schedule by day/time.
         </Typography>
       </Stack>
-
-      <CampaignHeader
-        campaign={campaign}
-        showActions={false}
-      />
 
       <Stack
         direction={{ xs: "column", sm: "row" }}
@@ -242,14 +303,27 @@ export default function DashboardPage() {
         justifyContent="flex-end"
       >
         <Button
-          startIcon={<PublishIcon />}
+          startIcon={<InstagramIcon />}
           variant="contained"
-          onClick={() =>
-            setToast("Schedule stub: this will publish to IG later.")
-          }
-          sx={{ textTransform: "none", borderRadius: 999, fontWeight: 800 }}
+          onClick={() => {
+            if (schedule.length === 0) {
+              setToast("No content scheduled. Drag content to calendar first.");
+              return;
+            }
+            setInstagramDialogOpen(true);
+          }}
+          disabled={schedule.length === 0}
+          sx={{
+            textTransform: "none",
+            borderRadius: 999,
+            fontWeight: 800,
+            bgcolor: "#E4405F",
+            "&:hover": {
+              bgcolor: "#C13584",
+            },
+          }}
         >
-          Schedule
+          Publish to Instagram ({schedule.length})
         </Button>
       </Stack>
 
@@ -261,32 +335,63 @@ export default function DashboardPage() {
           alignItems: "start",
         }}
       >
-        {/* Left: approved list */}
+        {/* Left: content library */}
         <Paper
           variant="outlined"
           sx={{ borderRadius: 4, borderColor: "divider", overflow: "hidden" }}
         >
           <Box sx={{ p: 2 }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
-              Approved items
+              Content Library
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Drag to schedule. Items remain approved even if already scheduled.
+              Drag images or videos to schedule them on the calendar.
             </Typography>
           </Box>
           <Divider />
-          <Stack spacing={1} sx={{ p: 2 }}>
-            {!campaign ? (
+          <Stack 
+            spacing={1} 
+            sx={{ 
+              p: 2,
+              maxHeight: 'calc(100vh - 200px)',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              scrollBehavior: 'smooth',
+              '&::-webkit-scrollbar': {
+                width: '8px',
+              },
+              '&::-webkit-scrollbar-track': {
+                backgroundColor: 'transparent',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                borderRadius: '4px',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                },
+              },
+            }}
+          >
+            {contentItems.length === 0 ? (
               <Typography color="text.secondary">
-                No active campaign. Create a campaign to get started.
-              </Typography>
-            ) : approved.length === 0 ? (
-              <Typography color="text.secondary">
-                Nothing approved yet — approve items in <b>Review</b>.
+                No content yet — generated content will appear here.
               </Typography>
             ) : (
-              approved.map((it) => {
+              contentItems.map((it) => {
                 const assignment = assignmentByItemId.get(it.id);
+                const mediaUrl = it.assetType === "video" ? it.videoUrl : it.imageUrl;
+                const statusColor = it.status === "approved" ? "success" : it.status === "rejected" ? "error" : "default";
+                
+                const igPost = instagramPostByContentId.get(it.id);
+                
+                // Get campaign name if available
+                const itemCampaign = it.campaignId ? campaignsById.get(it.campaignId) : null;
+                const campaignName = itemCampaign?.campaign_name || "Unknown Campaign";
+                
+                // Determine campaign badge color
+                const isActiveCampaign = campaign && it.campaignId === campaign.id;
+                const campaignBadgeColor = isActiveCampaign ? "#FF9800" : "#9C27B0"; // Orange for active, Purple for others
+
                 return (
                   <Paper
                     key={it.id}
@@ -304,48 +409,126 @@ export default function DashboardPage() {
                       "&:active": { cursor: "grabbing" },
                     }}
                   >
-                    <Stack direction="row" spacing={1.25} alignItems="center">
-                      <Box
-                        component="img"
-                        src={it.imageUrl}
-                        alt="Approved"
-                        sx={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 2,
-                          objectFit: "cover",
-                          flex: "0 0 auto",
-                        }}
-                      />
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 800 }}
-                          noWrap
+                    <Stack spacing={0.75}>
+                      <Stack direction="row" spacing={1.25} alignItems="center">
+                        <Box
+                          sx={{
+                            position: "relative",
+                            width: 44,
+                            height: 44,
+                            borderRadius: 2,
+                            overflow: "hidden",
+                            flex: "0 0 auto",
+                          }}
                         >
-                          {it.id}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          noWrap
-                        >
-                          {it.caption}
-                        </Typography>
-                      </Box>
-                      {assignment ? (
-                        <Chip
-                          size="small"
-                          icon={<CalendarMonthIcon />}
-                          label={`${assignment.dateISO} @ ${assignment.time}`}
-                          sx={{ fontWeight: 700 }}
-                        />
-                      ) : (
-                        <Chip
-                          size="small"
-                          label="Unscheduled"
-                          variant="outlined"
-                        />
+                          {it.assetType === "video" && it.videoUrl ? (
+                            <>
+                              <video
+                                src={it.videoUrl}
+                                style={{
+                                  width: "100%",
+                                  height: "100%",
+                                  objectFit: "cover",
+                                }}
+                              />
+                              <Box
+                                sx={{
+                                  position: "absolute",
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  bgcolor: "rgba(0, 0, 0, 0.3)",
+                                }}
+                              >
+                                <PlayArrowIcon
+                                  sx={{ color: "white", fontSize: 20 }}
+                                />
+                              </Box>
+                            </>
+                          ) : (
+                            <Box
+                              component="img"
+                              src={mediaUrl}
+                              alt="Content"
+                              sx={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "cover",
+                              }}
+                            />
+                          )}
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.25 }}>
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 800 }}
+                              noWrap
+                            >
+                              {it.assetType === "video" ? "Video" : "Image"}
+                            </Typography>
+                            <Chip
+                              size="small"
+                              label={it.status}
+                              color={statusColor}
+                              sx={{ height: 18, fontSize: "0.65rem", textTransform: "capitalize" }}
+                            />
+                          </Stack>
+                          <Box sx={{ mb: 0.25 }}>
+                            <Chip
+                              label={campaignName}
+                              size="small"
+                              sx={{
+                                bgcolor: campaignBadgeColor,
+                                color: "white",
+                                fontWeight: 600,
+                                height: 20,
+                                fontSize: "0.65rem",
+                                maxWidth: "100%",
+                                "& .MuiChip-label": {
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  px: 0.75,
+                                },
+                              }}
+                            />
+                          </Box>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            {it.caption}
+                          </Typography>
+                        </Box>
+                        {!assignment && (
+                          <Chip
+                            size="small"
+                            label="Unscheduled"
+                            variant="outlined"
+                          />
+                        )}
+                      </Stack>
+                      {igPost && (
+                        <Box sx={{ pl: 0.5 }}>
+                          <InstagramStatusBadge
+                            status={igPost.publish_status}
+                            permalink={igPost.instagram_permalink}
+                            errorMessage={igPost.error_message}
+                            size="small"
+                          />
+                        </Box>
                       )}
                     </Stack>
                   </Paper>
@@ -464,9 +647,9 @@ export default function DashboardPage() {
                       {dayAssignments.map((a) => {
                         const item = itemsById.get(a.itemId);
                         const title = item?.caption ?? a.itemId;
-                        const thumb =
-                          item?.imageUrl ??
-                          "https://picsum.photos/seed/contentbeaver/200/200";
+                        const isVideo = item?.assetType === "video";
+                        const mediaUrl = isVideo ? item?.videoUrl : item?.imageUrl;
+                        const thumb = mediaUrl ?? "https://picsum.photos/seed/contentbeaver/200/200";
 
                         return (
                           <Box
@@ -497,17 +680,56 @@ export default function DashboardPage() {
                             }}
                           >
                             <Box
-                              component="img"
-                              src={thumb}
-                              alt="Scheduled"
                               sx={{
+                                position: "relative",
                                 width: 22,
                                 height: 22,
                                 borderRadius: 1,
-                                objectFit: "cover",
+                                overflow: "hidden",
                                 flex: "0 0 auto",
                               }}
-                            />
+                            >
+                              {isVideo ? (
+                                <>
+                                  <video
+                                    src={thumb}
+                                    style={{
+                                      width: "100%",
+                                      height: "100%",
+                                      objectFit: "cover",
+                                    }}
+                                  />
+                                  <Box
+                                    sx={{
+                                      position: "absolute",
+                                      top: 0,
+                                      left: 0,
+                                      right: 0,
+                                      bottom: 0,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      bgcolor: "rgba(0, 0, 0, 0.3)",
+                                    }}
+                                  >
+                                    <PlayArrowIcon
+                                      sx={{ color: "white", fontSize: 12 }}
+                                    />
+                                  </Box>
+                                </>
+                              ) : (
+                                <Box
+                                  component="img"
+                                  src={thumb}
+                                  alt="Scheduled"
+                                  sx={{
+                                    width: "100%",
+                                    height: "100%",
+                                    objectFit: "cover",
+                                  }}
+                                />
+                              )}
+                            </Box>
                             <Box sx={{ flex: 1, minWidth: 0 }}>
                               <Typography
                                 variant="caption"
@@ -528,10 +750,14 @@ export default function DashboardPage() {
                             <IconButton
                               size="small"
                               aria-label="Remove schedule"
+                              onPointerDown={(ev) => {
+                                ev.stopPropagation();
+                              }}
                               onClick={(ev) => {
                                 ev.stopPropagation();
                                 removeSchedule(a.itemId, userId);
                                 refresh();
+                                setToast("Content unscheduled.");
                               }}
                               sx={{ flex: "0 0 auto" }}
                             >
@@ -559,7 +785,21 @@ export default function DashboardPage() {
           upsertSchedule(dropTarget.itemId, dropTarget.dateISO, time, userId);
           setDropTarget(null);
           refresh();
-          setToast("Scheduled (stub).");
+          setToast("Content scheduled to calendar.");
+        }}
+      />
+
+      <InstagramScheduleDialog
+        open={instagramDialogOpen}
+        onClose={() => setInstagramDialogOpen(false)}
+        userId={userId || ""}
+        campaignId={campaign?.id}
+        scheduledItems={schedule}
+        contentItems={contentItems}
+        onSuccess={() => {
+          setInstagramDialogOpen(false);
+          setToast("Successfully published to Instagram!");
+          refresh();
         }}
       />
 

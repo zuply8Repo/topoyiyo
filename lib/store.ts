@@ -84,6 +84,12 @@ export function saveSpecPrompt(prompt: string, userId?: string) {
   ensureSeededItems(userId);
 }
 
+export function clearSpecPrompt(userId?: string) {
+  if (!isBrowser()) return;
+  const key = getUserKey(userId, "spec_prompt");
+  localStorage.removeItem(key);
+}
+
 export function ensureSeededItems(userId?: string) {
   if (!isBrowser()) return;
   const key = getUserKey(userId, "items");

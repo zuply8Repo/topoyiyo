@@ -46,3 +46,43 @@ export type ScheduleAssignment = {
   order?: number;
 };
 
+// ============================================================================
+// Instagram Types
+// ============================================================================
+
+export type InstagramAccountType = "business" | "creator";
+
+export type InstagramPublishStatus =
+  | "pending"
+  | "scheduled"
+  | "publishing"
+  | "published"
+  | "failed"
+  | "cancelled";
+
+export type InstagramAccount = {
+  id: string;
+  instagram_user_id: string;
+  instagram_username: string;
+  account_type: InstagramAccountType;
+  profile_picture_url?: string;
+  followers_count: number;
+  is_active: boolean;
+  token_expiry: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InstagramScheduledPost = {
+  id: string;
+  content_item_id: string;
+  instagram_account_id: string;
+  campaign_id?: string;
+  scheduled_date: string;
+  scheduled_time: string;
+  publish_status: InstagramPublishStatus;
+  instagram_permalink?: string;
+  error_message?: string;
+  created_at: string;
+};
+

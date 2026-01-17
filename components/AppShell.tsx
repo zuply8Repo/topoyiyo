@@ -19,7 +19,7 @@ import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 
 const nav = [
-  { label: "Prompt", href: "/prompt" },
+  { label: "New Campaign", href: "/prompt" },
   { label: "Review", href: "/review" },
   { label: "Dashboard", href: "/dashboard" },
 ];

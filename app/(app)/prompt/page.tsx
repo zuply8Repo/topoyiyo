@@ -1,6 +1,6 @@
 "use client";
 
-import { getSpecPrompt, saveSpecPrompt } from "@/lib/store";
+import { clearSpecPrompt, saveSpecPrompt } from "@/lib/store";
 import {
   createCampaign,
   sendMarketingChatMessage,
@@ -47,9 +47,9 @@ export default function PromptPage() {
   const [briefContent, setBriefContent] = React.useState<string>();
   const [isProcessingBrief, setIsProcessingBrief] = React.useState(false);
 
+  // Clear any previously saved prompt when component mounts for a fresh start
   React.useEffect(() => {
-    const existing = getSpecPrompt(userId);
-    if (existing) setInput(existing);
+    clearSpecPrompt(userId);
   }, [userId]);
 
   const send = async () => {
