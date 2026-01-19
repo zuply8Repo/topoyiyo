@@ -11,6 +11,8 @@ const API_BASE_URL =
 // Campaign Generation Types
 // ============================================================================
 
+export type VideoGenerationModel = "sora2" | "veo";
+
 export interface CreateCampaignResponse {
   success: boolean;
   job_id: string;
@@ -55,12 +57,14 @@ export interface JobStatus {
  *
  * @param userId - User ID
  * @param briefText - Campaign brief text
+ * @param videoModel - Video generation model to use (sora2 or veo)
  * @returns Campaign creation response with job_id
  * @throws Error if request fails
  */
 export async function createCampaign(
   userId: string,
-  briefText: string
+  briefText: string,
+  videoModel: VideoGenerationModel = "sora2"
 ): Promise<CreateCampaignResponse> {
   const response = await fetch(`${API_BASE_URL}/campaigns/generate`, {
     method: "POST",
@@ -70,6 +74,7 @@ export async function createCampaign(
     body: JSON.stringify({
       user_id: userId,
       brief_text: briefText,
+      video_model: videoModel,
     }),
   });
 
