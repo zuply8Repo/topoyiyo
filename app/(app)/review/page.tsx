@@ -3,15 +3,19 @@
 import ContentCard from "@/components/ContentCard";
 import CampaignHeader from "@/components/CampaignHeader";
 import CampaignSelector from "@/components/CampaignSelector";
+import PromptApprovalModal from "@/components/PromptApprovalModal";
 import { 
   fetchCampaignContent, 
   updateContentCaption, 
   deleteContentItem,
   getActiveCampaign,
   listUserCampaigns,
+  getCampaignPrompts,
+  approveAndGeneratePrompt,
+  updatePrompt,
   type Campaign
 } from "@/lib/api";
-import type { ContentItem } from "@/lib/types";
+import type { ContentItem, PromptResponse } from "@/lib/types";
 import { useSession } from "next-auth/react";
 import {
   Alert,
@@ -22,7 +26,10 @@ import {
   Snackbar,
   Stack,
   Typography,
+  Paper,
+  Chip,
 } from "@mui/material";
+import RateReviewIcon from '@mui/icons-material/RateReview';
 import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 
@@ -37,9 +44,13 @@ export default function ReviewPage() {
   const [campaign, setCampaign] = React.useState<Campaign | null>(null);
   const [campaigns, setCampaigns] = React.useState<Campaign[]>([]);
   const [items, setItems] = React.useState<ContentItem[]>([]);
+  const [prompts, setPrompts] = React.useState<PromptResponse[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [loadingCampaigns, setLoadingCampaigns] = React.useState(false);
+  const [loadingPrompts, setLoadingPrompts] = React.useState(false);
   const [selectorOpen, setSelectorOpen] = React.useState(false);
+  const [promptModalOpen, setPromptModalOpen] = React.useState(false);
+  const [approvingPrompts, setApprovingPrompts] = React.useState<Set<string>>(new Set());
   const [toast, setToast] = React.useState<{ 
     msg: string; 
     severity: "success" | "info" | "error" 
@@ -70,6 +81,27 @@ export default function ReviewPage() {
       setLoading(false);
     }
   }, [userId, campaignIdFromUrl, router]);
+
+  // Load campaign prompts
+  const loadPrompts = React.useCallback(async (campaignId: string) => {
+    if (!userId) return;
+
+    try {
+      setLoadingPrompts(true);
+      const response = await getCampaignPrompts(campaignId, userId);
+      const allPrompts = [
+        ...response.video_prompts,
+        ...response.story_images,
+        ...response.carousel_images,
+      ];
+      setPrompts(allPrompts);
+    } catch (error) {
+      console.error("Failed to load prompts:", error);
+      // Silently fail - prompts might not exist yet
+    } finally {
+      setLoadingPrompts(false);
+    }
+  }, [userId]);
 
   // Load campaign content
   const loadContent = React.useCallback(async (campaignId: string) => {
@@ -140,12 +172,71 @@ export default function ReviewPage() {
     }
   }, [userId, campaignIdFromUrl, loadActiveCampaign, loadContent]);
 
-  // Load campaign content when campaign changes
+  // Load campaign content and prompts when campaign changes
   React.useEffect(() => {
     if (campaign?.id && userId) {
       loadContent(campaign.id);
+      loadPrompts(campaign.id);
     }
-  }, [campaign?.id, userId, loadContent]);
+  }, [campaign?.id, userId, loadContent, loadPrompts]);
+
+  // Handle approve prompt
+  const handleApprovePrompt = async (promptId: string) => {
+    if (!userId || !campaign?.id) return;
+
+    try {
+      // Add to approving set
+      setApprovingPrompts(prev => new Set(prev).add(promptId));
+
+      // Approve and generate
+      await approveAndGeneratePrompt(promptId, userId, campaign.id);
+
+      // Update local state - mark as approved
+      setPrompts(prev =>
+        prev.map(p => (p.id === promptId ? { ...p, status: 'approved' as const } : p))
+      );
+
+      setToast({ msg: "Prompt approved! Generation started.", severity: "success" });
+
+      // Reload content after a delay to show new items
+      setTimeout(() => {
+        if (campaign?.id) loadContent(campaign.id);
+      }, 2000);
+    } catch (error) {
+      console.error("Failed to approve prompt:", error);
+      setToast({ msg: "Failed to approve prompt. Please try again.", severity: "error" });
+    } finally {
+      // Remove from approving set
+      setApprovingPrompts(prev => {
+        const next = new Set(prev);
+        next.delete(promptId);
+        return next;
+      });
+    }
+  };
+
+  // Handle edit prompt
+  const handleEditPrompt = async (promptId: string, updatedPrompt: string) => {
+    if (!userId) return;
+
+    try {
+      await updatePrompt(promptId, userId, updatedPrompt, 'edited');
+
+      // Update local state
+      setPrompts(prev =>
+        prev.map(p =>
+          p.id === promptId
+            ? { ...p, full_prompt: updatedPrompt, status: 'edited' as const }
+            : p
+        )
+      );
+
+      setToast({ msg: "Prompt updated successfully!", severity: "success" });
+    } catch (error) {
+      console.error("Failed to update prompt:", error);
+      throw new Error("Failed to save prompt changes");
+    }
+  };
 
   const handleSaveCaption = async (id: string, caption: string) => {
     if (!userId) return;
@@ -233,6 +324,63 @@ export default function ReviewPage() {
         showActions={true}
       />
 
+      {/* Prompt Review Section */}
+      {campaign && prompts.length > 0 && (
+        <Paper
+          elevation={0}
+          sx={{
+            border: "1px dashed",
+            borderColor: "divider",
+            borderRadius: 4,
+            p: 3,
+            bgcolor: "background.paper",
+          }}
+        >
+          <Stack spacing={2}>
+            <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                  Prompt to review
+                </Typography>
+                <Typography color="text.secondary" variant="body2">
+                  {prompts.filter(p => p.status !== 'approved').length > 0
+                    ? `This campaign has ${prompts.filter(p => p.status !== 'approved').length} prompts waiting for your review. Prompt generation may still be in progress.`
+                    : "All prompts have been approved and are generating content."}
+                </Typography>
+              </Box>
+              {prompts.filter(p => p.status !== 'approved').length > 0 && (
+                <Chip
+                  label={`${prompts.filter(p => p.status !== 'approved').length} pending`}
+                  color="warning"
+                  sx={{ fontWeight: 'bold' }}
+                />
+              )}
+            </Stack>
+            <Button
+              variant="outlined"
+              onClick={() => setPromptModalOpen(true)}
+              startIcon={<RateReviewIcon />}
+              disabled={loadingPrompts}
+              sx={{
+                textTransform: "none",
+                borderRadius: 2,
+                fontWeight: 800,
+                alignSelf: 'flex-start',
+              }}
+            >
+              {loadingPrompts ? (
+                <>
+                  <CircularProgress size={20} sx={{ mr: 1 }} />
+                  Loading...
+                </>
+              ) : (
+                `Review prompt (${prompts.filter(p => p.status !== 'approved').length})`
+              )}
+            </Button>
+          </Stack>
+        </Paper>
+      )}
+
       {campaign && items.length === 0 ? (
         <Box
           sx={{
@@ -282,6 +430,18 @@ export default function ReviewPage() {
         onClose={() => setSelectorOpen(false)}
         onSelect={handleSelectCampaign}
       />
+
+      {/* Prompt Approval Modal */}
+      {campaign && (
+        <PromptApprovalModal
+          open={promptModalOpen}
+          onClose={() => setPromptModalOpen(false)}
+          prompts={prompts}
+          onApprove={handleApprovePrompt}
+          onEdit={handleEditPrompt}
+          approvingPrompts={approvingPrompts}
+        />
+      )}
 
       <Snackbar
         open={Boolean(toast)}

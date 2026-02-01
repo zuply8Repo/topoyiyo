@@ -47,6 +47,106 @@ export type ScheduleAssignment = {
 };
 
 // ============================================================================
+// Prompt Management Types
+// ============================================================================
+
+export type PromptStatus = "pending" | "approved" | "rejected" | "edited";
+export type GenerationEngine = "veo" | "nano_banana";
+export type PromptType = "video" | "story_image" | "carousel_image";
+
+export interface VideoPrompt {
+  id?: string;
+  asset_id: string;
+  prompt: string;
+  subject: string;
+  action: string;
+  style: string;
+  camera: string;
+  composition: string;
+  focus_lens: string;
+  ambiance: string;
+  duration: number;
+  aspect_ratio: string;
+  resolution: string;
+  rationale: string;
+  status: PromptStatus;
+  engine: "veo";
+}
+
+export interface ImagePrompt {
+  id?: string;
+  asset_id: string;
+  prompt: string;
+  subject: string;
+  composition: string;
+  style: string;
+  color_palette: string;
+  dimensions: string;
+  quality?: string;
+  model_type?: "flash" | "pro";
+  rationale: string;
+  post_number?: number;
+  image_number?: number;
+  status: PromptStatus;
+  engine: "nano_banana";
+}
+
+export interface CampaignPrompts {
+  campaign_id: string;
+  campaign_name: string;
+  creative_direction: {
+    concept: string;
+    narrative: string;
+    tone: string;
+    visual_direction: string;
+  };
+  video_prompts: VideoPrompt[];
+  image_prompts: {
+    story_images: ImagePrompt[];
+    carousel_images: ImagePrompt[];
+  };
+}
+
+export interface PromptResponse {
+  id: string;
+  campaign_id: string;
+  prompt_type: PromptType;
+  asset_id: string;
+  full_prompt: string;
+  metadata: Record<string, any>;
+  status: PromptStatus;
+  engine: GenerationEngine;
+  user_edits?: string;
+  created_at: string;
+  updated_at: string;
+  reference_images?: ReferenceImage[];
+}
+
+// ============================================================================
+// Reference Images Types
+// ============================================================================
+
+export type ReferenceImageType = "logo" | "product";
+
+export interface ReferenceImage {
+  id: string;
+  prompt_id: string;
+  image_type: ReferenceImageType;
+  public_url: string;
+  file_name: string;
+  file_size?: number;
+  mime_type?: string;
+  uploaded_at: string;
+  expires_at: string;
+}
+
+export interface ReferenceImageUpload {
+  prompt_id: string;
+  image_type: ReferenceImageType;
+  file: File;
+}
+
+// ============================================================================
 // Instagram Types
 // ============================================================================
 

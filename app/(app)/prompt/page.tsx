@@ -51,7 +51,8 @@ export default function PromptPage() {
   const [hasBrief, setHasBrief] = React.useState(false);
   const [briefContent, setBriefContent] = React.useState<string>();
   const [isProcessingBrief, setIsProcessingBrief] = React.useState(false);
-  const [videoModel, setVideoModel] = React.useState<VideoGenerationModel>("sora2");
+  // Force VEO model for all campaigns
+  const videoModel: VideoGenerationModel = "veo";
 
   // Clear any previously saved prompt when component mounts for a fresh start
   React.useEffect(() => {
@@ -259,11 +260,12 @@ Generated: ${new Date().toLocaleDateString()}
           // Save to localStorage as backup
           saveSpecPrompt(brief.fullBrief, userId);
 
-          // Start campaign generation with the full brief and selected video model
+          // Start campaign generation with the full brief and VEO model
           const response = await createCampaign(userId, brief.fullBrief, videoModel);
 
-          // Navigate to loading page with job_id
-          router.push(`/loading?job_id=${response.job_id}`);
+          // Navigate to loading page with job_id and campaign_id
+          // The loading page will redirect to approval page when prompts are ready
+          router.push(`/loading?job_id=${response.job_id}&campaign_id=${response.campaign_id}`);
         } catch (error) {
           console.error("Failed to process and start campaign:", error);
           setIsProcessingBrief(false);
@@ -297,43 +299,10 @@ Generated: ${new Date().toLocaleDateString()}
         </Typography>
         <Typography color="text.secondary">
           Chat with our AI marketing specialist to build your campaign brief.
-          Answer the questions and we'll automatically start generating your
-          content when ready.
+          Answer the questions and we'll automatically generate prompts for your
+          review when ready.
         </Typography>
       </Stack>
-
-      <FormControl fullWidth variant="outlined">
-        <InputLabel id="video-model-label">Video Generation Model</InputLabel>
-        <Select
-          labelId="video-model-label"
-          id="video-model-select"
-          value={videoModel}
-          onChange={(e) => setVideoModel(e.target.value as VideoGenerationModel)}
-          label="Video Generation Model"
-          disabled={isProcessingBrief}
-        >
-          <MenuItem value="sora2">
-            <Stack spacing={0.25}>
-              <Typography variant="body2" fontWeight={600}>
-                OpenAI Sora 2
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                4-12s videos, 720p-1280p, realistic motion
-              </Typography>
-            </Stack>
-          </MenuItem>
-          <MenuItem value="veo">
-            <Stack spacing={0.25}>
-              <Typography variant="body2" fontWeight={600}>
-                Google Veo 3.1
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                4-8s videos, 720p-4k, native audio, cinematic quality
-              </Typography>
-            </Stack>
-          </MenuItem>
-        </Select>
-      </FormControl>
 
       <Paper
         variant="outlined"

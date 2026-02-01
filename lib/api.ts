@@ -2,7 +2,7 @@
  * API client for backend campaign generation services
  */
 
-import type { ContentItem } from "./types";
+import type { ContentItem, CampaignPrompts, PromptStatus, PromptResponse, ReferenceImage, ReferenceImageType } from "./types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -16,6 +16,7 @@ export type VideoGenerationModel = "sora2" | "veo";
 export interface CreateCampaignResponse {
   success: boolean;
   job_id: string;
+  campaign_id: string;
   message: string;
 }
 
@@ -538,3 +539,395 @@ export async function deleteContentItem(
   }
 }
 
+// ============================================================================
+// Prompt Management API
+// ============================================================================
+
+export interface SavePromptsPayload {
+  campaign_id: string;
+  campaign_name: string;
+  creative_direction: {
+    concept: string;
+    narrative: string;
+    tone: string;
+    visual_direction: string;
+  };
+  video_prompts: Array<{
+    asset_id: string;
+    prompt: string;
+    subject: string;
+    action: string;
+    style: string;
+    camera: string;
+    composition: string;
+    focus_lens: string;
+    ambiance: string;
+    duration: number;
+    aspect_ratio: string;
+    resolution: string;
+    rationale: string;
+    status?: string;
+  }>;
+  story_images: Array<{
+    asset_id: string;
+    prompt: string;
+    subject: string;
+    composition: string;
+    style: string;
+    color_palette: string;
+    dimensions: string;
+    quality?: string;
+    model_type?: string;
+    rationale: string;
+    status?: string;
+  }>;
+  carousel_images: Array<{
+    asset_id: string;
+    prompt: string;
+    subject: string;
+    composition: string;
+    style: string;
+    color_palette: string;
+    dimensions: string;
+    post_number?: number;
+    image_number?: number;
+    quality?: string;
+    model_type?: string;
+    rationale: string;
+    status?: string;
+  }>;
+  user_id: string;
+}
+
+/**
+ * Save campaign prompts to database for user review
+ * 
+ * @param campaignId - Campaign UUID
+ * @param prompts - Complete prompt data from backend
+ * @param userId - User ID for authorization
+ * @returns Success confirmation
+ * @throws Error if request fails
+ */
+export async function saveCampaignPrompts(
+  campaignId: string,
+  prompts: SavePromptsPayload,
+  userId: string
+): Promise<{ success: boolean; total_prompts: number }> {
+  const response = await fetch(
+    `${API_BASE_URL}/campaigns/${campaignId}/prompts/save`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ...prompts, user_id: userId }),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to save prompts";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // If parsing fails, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
+/**
+ * Get all prompts for a campaign
+ * 
+ * @param campaignId - Campaign UUID
+ * @param userId - User ID for authorization
+ * @returns All prompts organized by type
+ * @throws Error if request fails
+ */
+export async function getCampaignPrompts(
+  campaignId: string,
+  userId: string
+): Promise<{
+  success: boolean;
+  campaign_id: string;
+  campaign_name: string;
+  creative_direction: Record<string, any>;
+  video_prompts: PromptResponse[];
+  story_images: PromptResponse[];
+  carousel_images: PromptResponse[];
+  total: number;
+}> {
+  const response = await fetch(
+    `${API_BASE_URL}/campaigns/${campaignId}/prompts?user_id=${userId}`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to get prompts";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // If parsing fails, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
+/**
+ * Update a single prompt (edit or status change)
+ * 
+ * @param promptId - Prompt UUID
+ * @param userId - User ID for authorization
+ * @param fullPrompt - Updated prompt text
+ * @param status - New status
+ * @returns Updated prompt data
+ * @throws Error if request fails
+ */
+export async function updatePrompt(
+  promptId: string,
+  userId: string,
+  fullPrompt: string,
+  status: PromptStatus
+): Promise<{ success: boolean; prompt: PromptResponse }> {
+  const response = await fetch(`${API_BASE_URL}/prompts/${promptId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      full_prompt: fullPrompt,
+      status,
+      user_id: userId,
+    }),
+  });
+
+  if (!response.ok) {
+    let errorMessage = "Failed to update prompt";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // If parsing fails, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
+/**
+ * Approve a single prompt and trigger immediate generation
+ * 
+ * @param promptId - Prompt UUID
+ * @param userId - User ID for authorization
+ * @param campaignId - Campaign UUID
+ * @returns Job ID and status
+ * @throws Error if request fails
+ */
+export async function approveAndGeneratePrompt(
+  promptId: string,
+  userId: string,
+  campaignId: string
+): Promise<{
+  success: boolean;
+  job_id: string;
+  status: string;
+  message: string;
+}> {
+  const response = await fetch(
+    `${API_BASE_URL}/prompts/${promptId}/approve-and-generate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ 
+        user_id: userId,
+        campaign_id: campaignId 
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to approve and generate prompt";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // If parsing fails, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
+/**
+ * Trigger content generation from approved prompts
+ * 
+ * @param campaignId - Campaign UUID
+ * @param userId - User ID for authorization
+ * @returns Job ID and approval counts
+ * @throws Error if request fails
+ */
+export async function generateApprovedContent(
+  campaignId: string,
+  userId: string
+): Promise<{
+  success: boolean;
+  job_id: string;
+  approved_videos: number;
+  approved_images: number;
+  message: string;
+}> {
+  const response = await fetch(
+    `${API_BASE_URL}/campaigns/${campaignId}/prompts/generate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: userId }),
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to generate content";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // If parsing fails, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
+// ============================================================================
+// Reference Images API
+// ============================================================================
+
+/**
+ * Upload a reference image for a prompt
+ * 
+ * @param promptId - Prompt UUID
+ * @param imageType - Type of image (logo or product)
+ * @param file - Image file to upload
+ * @param userId - User ID for authorization
+ * @returns Uploaded image metadata
+ * @throws Error if request fails
+ */
+export async function uploadReferenceImage(
+  promptId: string,
+  imageType: ReferenceImageType,
+  file: File,
+  userId: string
+): Promise<ReferenceImage> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('image_type', imageType);
+  formData.append('user_id', userId);
+
+  const response = await fetch(
+    `${API_BASE_URL}/prompts/${promptId}/reference-images/upload`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to upload reference image";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // If parsing fails, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
+/**
+ * Get all active reference images for a prompt
+ * 
+ * @param promptId - Prompt UUID
+ * @param userId - User ID for authorization
+ * @returns List of active reference images
+ * @throws Error if request fails
+ */
+export async function getReferenceImages(
+  promptId: string,
+  userId: string
+): Promise<ReferenceImage[]> {
+  const response = await fetch(
+    `${API_BASE_URL}/prompts/${promptId}/reference-images?user_id=${userId}`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to get reference images";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // If parsing fails, use default message
+    }
+    throw new Error(errorMessage);
+  }
+
+  const data = await response.json();
+  return data.images || [];
+}
+
+/**
+ * Delete a reference image
+ * 
+ * @param imageId - Reference image UUID
+ * @param userId - User ID for authorization
+ * @throws Error if request fails
+ */
+export async function deleteReferenceImage(
+  imageId: string,
+  userId: string
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/reference-images/${imageId}?user_id=${userId}`,
+    {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  if (!response.ok) {
+    let errorMessage = "Failed to delete reference image";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // If parsing fails, use default message
+    }
+    throw new Error(errorMessage);
+  }
+}

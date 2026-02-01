@@ -9,11 +9,12 @@ export default function LoadingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const jobId = searchParams.get("job_id");
+  const campaignIdParam = searchParams.get("campaign_id");
   
   const [status, setStatus] = React.useState<string>("pending");
   const [progress, setProgress] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
-  const [campaignId, setCampaignId] = React.useState<string | null>(null);
+  const [campaignId, setCampaignId] = React.useState<string | null>(campaignIdParam);
   const [isPolling, setIsPolling] = React.useState(true);
 
   React.useEffect(() => {
@@ -37,15 +38,16 @@ export default function LoadingPage() {
         if (jobStatus.status === "completed") {
           setIsPolling(false);
           // Wait 2 seconds before redirecting to show completion
-          if (jobStatus.campaign_id) {
-            setTimeout(() => router.push(`/review?campaignId=${jobStatus.campaign_id}`), 2000);
+          const finalCampaignId = jobStatus.campaign_id || campaignId;
+          if (finalCampaignId) {
+            setTimeout(() => router.push(`/approval?campaignId=${finalCampaignId}`), 2000);
           } else {
             // Fallback if campaign_id is not available
             setTimeout(() => router.push("/dashboard"), 2000);
           }
         } else if (jobStatus.status === "failed") {
           setIsPolling(false);
-          setError(jobStatus.error_message || "Campaign generation failed");
+          setError(jobStatus.error_message || "Prompt generation failed");
         }
       } catch (err) {
         console.error("Failed to get job status:", err);
@@ -72,11 +74,11 @@ export default function LoadingPage() {
       case "pending":
         return "Your campaign is queued...";
       case "processing":
-        return "Our creative team is working on your campaign...";
+        return "Our creative team is crafting your prompts...";
       case "completed":
-        return "Campaign complete! Redirecting...";
+        return "Prompts ready! Redirecting...";
       case "failed":
-        return "Campaign generation failed";
+        return "Prompt generation failed";
       default:
         return "Processing...";
     }
@@ -84,12 +86,12 @@ export default function LoadingPage() {
 
   const getStatusDescription = () => {
     if (status === "completed") {
-      return "Your campaign is ready for review!";
+      return "Your prompts are ready for review and approval!";
     }
     if (status === "failed") {
       return "Something went wrong. Please try again or contact support.";
     }
-    return "This takes approximately 10 minutes. We'll email you when it's ready!";
+    return "Generating 6 video prompts and 24 image prompts for your campaign...";
   };
 
   return (
@@ -146,7 +148,7 @@ export default function LoadingPage() {
               color="text.secondary" 
               sx={{ maxWidth: "90%", textAlign: "center" }}
             >
-              💡 You can close this page. We'll send an email when your campaign is ready.
+              💡 Hang tight! We're generating prompts using VEO for videos and Nano Banana for images.
             </Typography>
           )}
         </Stack>
