@@ -2,14 +2,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@clerk/nextjs';
 import {
   Container,
   Box,
   Typography,
   Tabs,
   Tab,
-  Grid,
   Button,
   LinearProgress,
   Alert,
@@ -22,7 +21,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PromptCard from '@/components/PromptCard';
 import PromptEditModal from '@/components/PromptEditModal';
 import PromptReviewModal from '@/components/PromptReviewModal';
-import { getCampaignPrompts, updatePrompt, approveAndGeneratePrompt } from '@/lib/api';
+import { ApiError, getCampaignPrompts, updatePrompt, approveAndGeneratePrompt, getCreditBalance } from '@/lib/api';
 import type { PromptResponse } from '@/lib/types';
 
 interface TabPanelProps {
@@ -51,8 +50,7 @@ export default function ApprovalPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const campaignId = searchParams.get('campaignId');
-  const { data: session } = useSession();
-  const userId = session?.user?.id;
+  const { userId, isLoaded, getToken } = useAuth();
 
   // State
   const [tabValue, setTabValue] = useState(0);
@@ -60,6 +58,8 @@ export default function ApprovalPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [approvingPrompts, setApprovingPrompts] = useState<Set<string>>(new Set());
+  const [creditBalance, setCreditBalance] = useState(0);
+  const veoUnitCostEur = 3.5;
 
   // Edit modal state
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -93,13 +93,21 @@ export default function ApprovalPage() {
       return;
     }
 
-    if (!userId) {
-      // Wait for session to load
+    if (!isLoaded || !userId) {
+      // Wait for auth to load
       return;
     }
 
     fetchPrompts();
-  }, [campaignId, userId]);
+  }, [campaignId, userId, isLoaded]);
+
+  useEffect(() => {
+    if (!userId) return;
+    getToken()
+      .then((token) => getCreditBalance(token ?? undefined))
+      .then(setCreditBalance)
+      .catch(() => setCreditBalance(0));
+  }, [userId, getToken]);
 
   const fetchPrompts = async () => {
     if (!campaignId || !userId) return;
@@ -107,7 +115,8 @@ export default function ApprovalPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await getCampaignPrompts(campaignId, userId);
+      const token = await getToken();
+      const response = await getCampaignPrompts(campaignId, token ?? undefined);
       // Combine all prompts into a single array
       const allPrompts = [
         ...response.video_prompts,
@@ -127,14 +136,24 @@ export default function ApprovalPage() {
     if (!userId || !campaignId) return;
     
     try {
+      const prompt = prompts.find((p) => p.id === promptId);
+      const required = prompt?.engine === 'veo' ? veoUnitCostEur : 0;
+      if (creditBalance < required) {
+        router.push('/billing');
+        return;
+      }
+
       // Add to approving set
       setApprovingPrompts((prev) => new Set(prev).add(promptId));
       
       // Approve and trigger generation
-      await approveAndGeneratePrompt(promptId, userId, campaignId);
+      const token = await getToken();
+      await approveAndGeneratePrompt(promptId, campaignId, token ?? undefined);
       
       // Remove the approved prompt from the UI with smooth transition
       setPrompts((prev) => prev.filter((p) => p.id !== promptId));
+      const balance = await getCreditBalance(token ?? undefined);
+      setCreditBalance(balance);
       
       // Remove from approving set
       setApprovingPrompts((prev) => {
@@ -144,6 +163,10 @@ export default function ApprovalPage() {
       });
     } catch (err) {
       console.error('Failed to approve and generate prompt:', err);
+      if (err instanceof ApiError && err.code === "INSUFFICIENT_CREDITS") {
+        router.push('/billing');
+        return;
+      }
       alert('Failed to approve and generate content. Please try again.');
       
       // Remove from approving set on error
@@ -163,7 +186,8 @@ export default function ApprovalPage() {
       const prompt = prompts.find((p) => p.id === promptId);
       if (!prompt) return;
       
-      await updatePrompt(promptId, userId, prompt.full_prompt, 'rejected');
+      const token = await getToken();
+      await updatePrompt(promptId, prompt.full_prompt, 'rejected', token ?? undefined);
       setPrompts((prev) =>
         prev.map((p) => (p.id === promptId ? { ...p, status: 'rejected' } : p))
       );
@@ -198,7 +222,8 @@ export default function ApprovalPage() {
     }
     
     try {
-      await updatePrompt(promptId, userId, updatedPrompt, 'edited');
+      const token = await getToken();
+      await updatePrompt(promptId, updatedPrompt, 'edited', token ?? undefined);
       setPrompts((prev) =>
         prev.map((p) =>
           p.id === promptId
@@ -212,18 +237,55 @@ export default function ApprovalPage() {
   };
 
   // Loading state
+  if (!isLoaded) {
+    return (
+      <Container maxWidth="xl" sx={{ py: 4 }}>
+        <Skeleton variant="text" width={300} height={60} />
+        <Skeleton variant="rectangular" height={60} sx={{ mt: 2 }} />
+        <Box
+          sx={{
+            mt: 2,
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)", lg: "repeat(3, 1fr)" },
+            gap: 3,
+          }}
+        >
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <Skeleton key={i} variant="rectangular" height={400} />
+          ))}
+        </Box>
+      </Container>
+    );
+  }
+
+  if (!userId) {
+    return (
+      <Container maxWidth="xl" sx={{ py: 4 }}>
+        <Alert severity="info">
+          <AlertTitle>Sign in required</AlertTitle>
+          Please sign in to review prompts.
+        </Alert>
+      </Container>
+    );
+  }
+
   if (loading) {
     return (
       <Container maxWidth="xl" sx={{ py: 4 }}>
         <Skeleton variant="text" width={300} height={60} />
         <Skeleton variant="rectangular" height={60} sx={{ mt: 2 }} />
-        <Grid container spacing={3} sx={{ mt: 2 }}>
+        <Box
+          sx={{
+            mt: 2,
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)", lg: "repeat(3, 1fr)" },
+            gap: 3,
+          }}
+        >
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <Grid item xs={12} md={6} lg={4} key={i}>
-              <Skeleton variant="rectangular" height={400} />
-            </Grid>
+            <Skeleton key={i} variant="rectangular" height={400} />
           ))}
-        </Grid>
+        </Box>
       </Container>
     );
   }
@@ -289,9 +351,14 @@ export default function ApprovalPage() {
           </Typography>
         </Box>
 
-        <Grid container spacing={2}>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", md: "repeat(3, 1fr)" },
+            gap: 2,
+          }}
+        >
           {/* Videos */}
-          <Grid item xs={12} md={4}>
             <Box>
               <Box
                 sx={{
@@ -315,10 +382,8 @@ export default function ApprovalPage() {
                 color={videoProgress === 100 ? 'success' : 'primary'}
               />
             </Box>
-          </Grid>
 
           {/* Story Images */}
-          <Grid item xs={12} md={4}>
             <Box>
               <Box
                 sx={{
@@ -342,10 +407,8 @@ export default function ApprovalPage() {
                 color={storyImageProgress === 100 ? 'success' : 'primary'}
               />
             </Box>
-          </Grid>
 
           {/* Carousel Images */}
-          <Grid item xs={12} md={4}>
             <Box>
               <Box
                 sx={{
@@ -372,8 +435,7 @@ export default function ApprovalPage() {
                 color={carouselImageProgress === 100 ? 'success' : 'primary'}
               />
             </Box>
-          </Grid>
-        </Grid>
+        </Box>
       </Paper>
 
       {/* Tabs */}
@@ -415,9 +477,15 @@ export default function ApprovalPage() {
 
       {/* Tab Panels */}
       <TabPanel value={tabValue} index={0}>
-        <Grid container spacing={3}>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)", lg: "repeat(3, 1fr)" },
+            gap: 3,
+          }}
+        >
           {videoPrompts.map((prompt) => (
-            <Grid item xs={12} md={6} lg={4} key={prompt.id}>
+            <Box key={prompt.id} sx={{ minWidth: 0 }}>
               <PromptCard
                 promptId={prompt.id}
                 assetId={prompt.asset_id}
@@ -431,15 +499,21 @@ export default function ApprovalPage() {
                 onReview={handleReview}
                 isApproving={approvingPrompts.has(prompt.id)}
               />
-            </Grid>
+            </Box>
           ))}
-        </Grid>
+        </Box>
       </TabPanel>
 
       <TabPanel value={tabValue} index={1}>
-        <Grid container spacing={3}>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)", lg: "repeat(3, 1fr)" },
+            gap: 3,
+          }}
+        >
           {storyImagePrompts.map((prompt) => (
-            <Grid item xs={12} md={6} lg={4} key={prompt.id}>
+            <Box key={prompt.id} sx={{ minWidth: 0 }}>
               <PromptCard
                 promptId={prompt.id}
                 assetId={prompt.asset_id}
@@ -453,15 +527,21 @@ export default function ApprovalPage() {
                 onReview={handleReview}
                 isApproving={approvingPrompts.has(prompt.id)}
               />
-            </Grid>
+            </Box>
           ))}
-        </Grid>
+        </Box>
       </TabPanel>
 
       <TabPanel value={tabValue} index={2}>
-        <Grid container spacing={3}>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)", lg: "repeat(3, 1fr)" },
+            gap: 3,
+          }}
+        >
           {carouselImagePrompts.map((prompt) => (
-            <Grid item xs={12} md={6} lg={4} key={prompt.id}>
+            <Box key={prompt.id} sx={{ minWidth: 0 }}>
               <PromptCard
                 promptId={prompt.id}
                 assetId={prompt.asset_id}
@@ -475,9 +555,9 @@ export default function ApprovalPage() {
                 onReview={handleReview}
                 isApproving={approvingPrompts.has(prompt.id)}
               />
-            </Grid>
+            </Box>
           ))}
-        </Grid>
+        </Box>
       </TabPanel>
 
       {/* Edit Modal */}

@@ -148,7 +148,7 @@ export default function LoadingPage() {
               color="text.secondary" 
               sx={{ maxWidth: "90%", textAlign: "center" }}
             >
-              💡 Hang tight! We're generating prompts using VEO for videos and Nano Banana for images.
+              💡 Hang tight! We&apos;re generating prompts using VEO for videos and Nano Banana for images.
             </Typography>
           )}
         </Stack>

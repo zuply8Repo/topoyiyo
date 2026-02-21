@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
   Box,
@@ -20,8 +20,7 @@ import { completeInstagramAuth } from "@/lib/instagram";
 export default function InstagramCallbackPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { data: session } = useSession();
-  const userId = session?.user?.id;
+  const { userId } = useAuth();
 
   const [status, setStatus] = React.useState<"loading" | "success" | "error">("loading");
   const [error, setError] = React.useState<string | null>(null);
@@ -39,6 +38,10 @@ export default function InstagramCallbackPage() {
 
   const handleCallback = async () => {
     try {
+      if (!userId) {
+        throw new Error("Not authenticated. Please sign in first.");
+      }
+
       // Get OAuth parameters from URL
       const code = searchParams.get("code");
       const state = searchParams.get("state");
@@ -63,7 +66,7 @@ export default function InstagramCallbackPage() {
       }
 
       // Complete OAuth flow
-      const response = await completeInstagramAuth(code, state, userId!);
+      const response = await completeInstagramAuth(code, state, userId);
       
       setAccountUsername(response.instagram_username);
       setStatus("success");
@@ -82,9 +85,9 @@ export default function InstagramCallbackPage() {
           router.push("/dashboard");
         }
       }, 2000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Instagram OAuth callback error:", err);
-      setError(err.message || "Failed to connect Instagram account");
+      setError(err instanceof Error ? err.message : "Failed to connect Instagram account");
       setStatus("error");
 
       // Redirect to dashboard after error

@@ -14,7 +14,6 @@ import {
   Paper,
   Divider,
   Stack,
-  CircularProgress,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -23,7 +22,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import VideoLibraryIcon from '@mui/icons-material/VideoLibrary';
 import ImageIcon from '@mui/icons-material/Image';
 import CollectionsIcon from '@mui/icons-material/Collections';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@clerk/nextjs';
 import { getReferenceImages } from '@/lib/api';
 import type { ReferenceImage } from '@/lib/types';
 
@@ -36,7 +35,7 @@ interface PromptReviewModalProps {
   fullPrompt: string;
   status: 'pending' | 'approved' | 'rejected' | 'edited';
   engine: 'veo' | 'nano_banana';
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   onApprove: (promptId: string) => void;
   onEdit: (promptId: string) => void;
   onReject: (promptId: string) => void;
@@ -56,8 +55,7 @@ const PromptReviewModal: React.FC<PromptReviewModalProps> = ({
   onEdit,
   onReject,
 }) => {
-  const { data: session } = useSession();
-  const userId = session?.user?.id;
+  const { userId } = useAuth();
   
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
   const [loadingImages, setLoadingImages] = useState(false);
@@ -202,23 +200,23 @@ const PromptReviewModal: React.FC<PromptReviewModalProps> = ({
           <Chip
             label={status.toUpperCase()}
             variant="filled"
-            color={getStatusColor() as any}
+            color={getStatusColor()}
           />
-          {metadata?.duration && (
+          {typeof metadata?.duration === 'number' && (
             <Chip
               label={`Duration: ${metadata.duration}s`}
               variant="outlined"
               size="small"
             />
           )}
-          {metadata?.aspect_ratio && (
+          {typeof metadata?.aspect_ratio === 'string' && (
             <Chip
               label={`Ratio: ${metadata.aspect_ratio}`}
               variant="outlined"
               size="small"
             />
           )}
-          {metadata?.model_type && (
+          {typeof metadata?.model_type === 'string' && (
             <Chip
               label={`Model: ${metadata.model_type}`}
               variant="outlined"

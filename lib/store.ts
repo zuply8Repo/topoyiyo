@@ -62,6 +62,7 @@ function seedItems(): ContentItem[] {
   ];
   return seeds.map((s, idx) => ({
     id: s.id,
+    assetType: "image" as const,
     imageUrl: `https://picsum.photos/seed/${encodeURIComponent(s.id)}/800/800`,
     caption: s.caption,
     status: "pending" as const,

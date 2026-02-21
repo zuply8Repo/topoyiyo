@@ -2,18 +2,23 @@
 
 import { clearSpecPrompt, saveSpecPrompt } from "@/lib/store";
 import {
+  ApiError,
   createCampaign,
+  getCreditBalance,
   sendMarketingChatMessage,
   approveMarketingBrief,
   ChatMessage,
   VideoGenerationModel,
 } from "@/lib/api";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@clerk/nextjs";
 import SendIcon from "@mui/icons-material/Send";
 import {
   Box,
   Button,
+  Card,
+  CardContent,
   FormControl,
+  Grid,
   InputLabel,
   MenuItem,
   Paper,
@@ -29,8 +34,8 @@ type Msg = { id: string; role: "user" | "assistant"; text: string };
 
 export default function PromptPage() {
   const router = useRouter();
-  const { data: session } = useSession();
-  const userId = session?.user?.id;
+  const { userId, isLoaded, getToken } = useAuth();
+  const userIdParam = userId || undefined;
 
   const [input, setInput] = React.useState("");
   const msgId = React.useRef(1);
@@ -51,13 +56,38 @@ export default function PromptPage() {
   const [hasBrief, setHasBrief] = React.useState(false);
   const [briefContent, setBriefContent] = React.useState<string>();
   const [isProcessingBrief, setIsProcessingBrief] = React.useState(false);
+  const [creditBalance, setCreditBalance] = React.useState<number>(0);
   // Force VEO model for all campaigns
   const videoModel: VideoGenerationModel = "veo";
 
+  const textCostPer1kTokens = 0.15;
+
   // Clear any previously saved prompt when component mounts for a fresh start
   React.useEffect(() => {
-    clearSpecPrompt(userId);
+    if (userId) clearSpecPrompt(userId);
   }, [userId]);
+
+  React.useEffect(() => {
+    if (!userId) return;
+    getToken()
+      .then((token) => getCreditBalance(token ?? undefined))
+      .then((balance) => setCreditBalance(balance))
+      .catch(() => {
+        setCreditBalance(0);
+      });
+  }, [userId, getToken]);
+
+  const estimateTextCost = React.useCallback(
+    (text: string, history: ChatMessage[]) => {
+      const allText =
+        history.map((m) => m.content).join(" ") + " " + text.trim();
+      const approxInputTokens = Math.max(1, Math.ceil(allText.length / 4));
+      const expectedOutputTokens = 600;
+      const total = approxInputTokens + expectedOutputTokens;
+      return (total / 1000) * textCostPer1kTokens;
+    },
+    []
+  );
 
   const send = async () => {
     const trimmed = input.trim();
@@ -72,6 +102,13 @@ export default function PromptPage() {
     setInput(""); // Clear input field immediately
 
     try {
+      const estimatedCost = estimateTextCost(trimmed, backendMessages);
+      if (creditBalance < estimatedCost) {
+        router.push("/billing");
+        setIsSending(false);
+        return;
+      }
+
       // Prepare messages for backend
       const userMessage: ChatMessage = {
         role: "user",
@@ -83,12 +120,18 @@ export default function PromptPage() {
           ? [...backendMessages, userMessage]
           : [userMessage];
 
+      const token = await getToken();
       // Call the marketing intake agent
       const response = await sendMarketingChatMessage(
         messagesToSend,
         conversationId,
-        userId
+        token ?? undefined
       );
+
+      if (userId) {
+        const balance = await getCreditBalance(token ?? undefined);
+        setCreditBalance(balance);
+      }
 
       // Update conversation state
       setConversationId(response.conversation_id);
@@ -112,6 +155,10 @@ export default function PromptPage() {
       // The fallback detection happens in a separate useEffect
     } catch (error) {
       console.error("Failed to send message:", error);
+      if (error instanceof ApiError && error.code === "INSUFFICIENT_CREDITS") {
+        router.push("/billing");
+        return;
+      }
 
       // Show error message to user
       const errorMsg: Msg = {
@@ -249,25 +296,42 @@ Generated: ${new Date().toLocaleDateString()}
             return;
           }
 
+          const token = await getToken();
           // Save the marketing brief to database
           await approveMarketingBrief(
             brief.summary,
             brief.fullBrief,
             conversationId,
-            userId
+            token ?? undefined
           );
 
           // Save to localStorage as backup
           saveSpecPrompt(brief.fullBrief, userId);
 
           // Start campaign generation with the full brief and VEO model
-          const response = await createCampaign(userId, brief.fullBrief, videoModel);
+          const response = await createCampaign(
+            brief.fullBrief,
+            videoModel,
+            token ?? undefined
+          );
+
+          const balance = await getCreditBalance(token ?? undefined);
+          setCreditBalance(balance);
 
           // Navigate to loading page with job_id and campaign_id
           // The loading page will redirect to approval page when prompts are ready
-          router.push(`/loading?job_id=${response.job_id}&campaign_id=${response.campaign_id}`);
+          router.push(
+            `/loading?job_id=${response.job_id}&campaign_id=${response.campaign_id}`
+          );
         } catch (error) {
           console.error("Failed to process and start campaign:", error);
+          if (
+            error instanceof ApiError &&
+            error.code === "INSUFFICIENT_CREDITS"
+          ) {
+            router.push("/billing");
+            return;
+          }
           setIsProcessingBrief(false);
 
           // Show error to user
@@ -291,7 +355,29 @@ Generated: ${new Date().toLocaleDateString()}
     router,
   ]);
 
-  return (
+  return !isLoaded ? (
+    <Box
+      sx={{
+        minHeight: "60vh",
+        display: "grid",
+        placeItems: "center",
+        bgcolor: "background.default",
+      }}
+    >
+      <Typography>Loading...</Typography>
+    </Box>
+  ) : !userId ? (
+    <Box
+      sx={{
+        minHeight: "60vh",
+        display: "grid",
+        placeItems: "center",
+        bgcolor: "background.default",
+      }}
+    >
+      <Typography>Please sign in to continue.</Typography>
+    </Box>
+  ) : (
     <Stack spacing={2.5}>
       <Stack spacing={0.25}>
         <Typography variant="h5" sx={{ fontWeight: 900 }}>
@@ -299,8 +385,8 @@ Generated: ${new Date().toLocaleDateString()}
         </Typography>
         <Typography color="text.secondary">
           Chat with our AI marketing specialist to build your campaign brief.
-          Answer the questions and we'll automatically generate prompts for your
-          review when ready.
+          Answer the questions and we&apos;ll automatically generate prompts for
+          your review when ready.
         </Typography>
       </Stack>
 
@@ -419,6 +505,142 @@ Generated: ${new Date().toLocaleDateString()}
           </Stack>
         </Box>
       </Paper>
+
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Card
+            variant="outlined"
+            sx={{ height: "100%", borderRadius: 2, borderColor: "divider" }}
+          >
+            <CardContent sx={{ p: 2 }}>
+              <Typography
+                variant="subtitle1"
+                sx={{
+                  fontWeight: 800,
+                  mb: 1,
+                  color: "primary.main",
+                  letterSpacing: "-0.02em",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                }}
+              >
+                <Box
+                  component="span"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 24,
+                    height: 24,
+                    borderRadius: "50%",
+                    bgcolor: "primary.main",
+                    color: "primary.contrastText",
+                    fontSize: "0.75rem",
+                    fontWeight: 900,
+                  }}
+                >
+                  1
+                </Box>
+                Your AI Marketing Expert
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Here is your AI marketing expert. It will walk you through with
+                questions how to generate your prompts for your campaigns.
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Card
+            variant="outlined"
+            sx={{ height: "100%", borderRadius: 2, borderColor: "divider" }}
+          >
+            <CardContent sx={{ p: 2 }}>
+              <Typography
+                variant="subtitle1"
+                sx={{
+                  fontWeight: 800,
+                  mb: 1,
+                  color: "primary.main",
+                  letterSpacing: "-0.02em",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                }}
+              >
+                <Box
+                  component="span"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 24,
+                    height: 24,
+                    borderRadius: "50%",
+                    bgcolor: "primary.main",
+                    color: "primary.contrastText",
+                    fontSize: "0.75rem",
+                    fontWeight: 900,
+                  }}
+                >
+                  2
+                </Box>
+                Automatic Prompt Generation
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                After your marketing expert gathers all important information,
+                it will automatically generate your prompts for your video and
+                images.
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Card
+            variant="outlined"
+            sx={{ height: "100%", borderRadius: 2, borderColor: "divider" }}
+          >
+            <CardContent sx={{ p: 2 }}>
+              <Typography
+                variant="subtitle1"
+                sx={{
+                  fontWeight: 800,
+                  mb: 1,
+                  color: "primary.main",
+                  letterSpacing: "-0.02em",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                }}
+              >
+                <Box
+                  component="span"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 24,
+                    height: 24,
+                    borderRadius: "50%",
+                    bgcolor: "primary.main",
+                    color: "primary.contrastText",
+                    fontSize: "0.75rem",
+                    fontWeight: 900,
+                  }}
+                >
+                  3
+                </Box>
+                Final Review
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                You will have a final checkup before sending to the available
+                video models on the review page.
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
     </Stack>
   );
 }

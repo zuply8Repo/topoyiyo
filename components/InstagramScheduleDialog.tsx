@@ -91,9 +91,9 @@ export default function InstagramScheduleDialog({
       } else {
         setAccount(activeAccount);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to check Instagram account:", err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : "Failed to check Instagram account");
     } finally {
       setLoading(false);
     }
@@ -109,7 +109,7 @@ export default function InstagramScheduleDialog({
       
       // Redirect to Instagram OAuth
       window.location.href = authorization_url;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to initiate Instagram auth:", err);
       setError("Failed to connect to Instagram. Please try again.");
       setLoading(false);
@@ -125,9 +125,9 @@ export default function InstagramScheduleDialog({
       if (!activeAccount) {
         setError("No Instagram account connected. Please connect an account first.");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to load Instagram account:", err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : "Failed to load Instagram account");
     } finally {
       setLoading(false);
     }
@@ -173,9 +173,9 @@ export default function InstagramScheduleDialog({
           onSuccess?.();
         }, 2000);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to schedule and publish:", err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : "Failed to schedule and publish");
       setState("error");
     }
   };

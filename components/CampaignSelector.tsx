@@ -3,7 +3,6 @@
 import React from "react";
 import {
   Box,
-  Button,
   Chip,
   CircularProgress,
   Dialog,
@@ -18,6 +17,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import type { ChipProps } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import SearchIcon from "@mui/icons-material/Search";
 import type { Campaign } from "@/lib/api";
@@ -52,7 +52,7 @@ export default function CampaignSelector({
     );
   }, [campaigns, searchQuery]);
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string): ChipProps["color"] => {
     switch (status) {
       case "completed":
         return "success";
@@ -181,7 +181,7 @@ export default function CampaignSelector({
                           </Typography>
                           <Chip
                             label={campaign.status}
-                            color={getStatusColor(campaign.status) as any}
+                            color={getStatusColor(campaign.status)}
                             size="small"
                             sx={{ fontWeight: 700, textTransform: "capitalize" }}
                           />

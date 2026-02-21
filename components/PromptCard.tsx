@@ -27,7 +27,7 @@ interface PromptCardProps {
   fullPrompt: string;
   status: 'pending' | 'approved' | 'rejected' | 'edited';
   engine: 'veo' | 'nano_banana';
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   onApprove: (promptId: string) => void;
   onEdit: (promptId: string) => void;
   onReview: (promptId: string) => void;

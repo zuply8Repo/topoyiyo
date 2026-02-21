@@ -24,7 +24,7 @@ import ImageIcon from '@mui/icons-material/Image';
 import CollectionsIcon from '@mui/icons-material/Collections';
 import UploadIcon from '@mui/icons-material/Upload';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@clerk/nextjs';
 import { uploadReferenceImage, getReferenceImages, deleteReferenceImage } from '@/lib/api';
 import type { ReferenceImage } from '@/lib/types';
 
@@ -36,7 +36,7 @@ interface PromptEditModalProps {
   promptType: 'video' | 'story_image' | 'carousel_image';
   initialPrompt: string;
   engine: 'veo' | 'nano_banana';
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   onSave: (promptId: string, updatedPrompt: string) => Promise<void>;
 }
 
@@ -51,8 +51,7 @@ const PromptEditModal: React.FC<PromptEditModalProps> = ({
   metadata,
   onSave,
 }) => {
-  const { data: session } = useSession();
-  const userId = session?.user?.id;
+  const { userId } = useAuth();
   
   const [editedPrompt, setEditedPrompt] = useState(initialPrompt);
   const [isSaving, setIsSaving] = useState(false);
@@ -291,21 +290,21 @@ const PromptEditModal: React.FC<PromptEditModalProps> = ({
         <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           <Chip label={getTypeLabel()} variant="outlined" />
           <Chip label={getEngineLabel()} variant="outlined" color="primary" />
-          {metadata?.duration && (
+          {typeof metadata?.duration === 'number' && (
             <Chip
               label={`Duration: ${metadata.duration}s`}
               variant="outlined"
               size="small"
             />
           )}
-          {metadata?.aspect_ratio && (
+          {typeof metadata?.aspect_ratio === 'string' && (
             <Chip
               label={`Ratio: ${metadata.aspect_ratio}`}
               variant="outlined"
               size="small"
             />
           )}
-          {metadata?.model_type && (
+          {typeof metadata?.model_type === 'string' && (
             <Chip
               label={`Model: ${metadata.model_type}`}
               variant="outlined"

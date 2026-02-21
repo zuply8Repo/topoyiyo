@@ -54,9 +54,9 @@ export default function InstagramConnect({
       const activeAccount = await getActiveInstagramAccount(userId);
       setAccount(activeAccount);
       onAccountChange?.(activeAccount);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to load Instagram account:", err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : "Failed to load Instagram account");
     } finally {
       setLoading(false);
     }
@@ -94,9 +94,9 @@ export default function InstagramConnect({
           loadAccount();
         }
       }, 500);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to connect Instagram:", err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : "Failed to connect Instagram");
       setConnecting(false);
     }
   };
@@ -110,9 +110,9 @@ export default function InstagramConnect({
       setAccount(null);
       onAccountChange?.(null);
       setDisconnectDialogOpen(false);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to disconnect Instagram:", err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : "Failed to disconnect Instagram");
     } finally {
       setLoading(false);
     }
@@ -228,7 +228,7 @@ export default function InstagramConnect({
         <DialogContent>
           <Typography>
             Are you sure you want to disconnect @{account?.instagram_username}?
-            You won't be able to schedule or publish posts until you reconnect.
+            You won&apos;t be able to schedule or publish posts until you reconnect.
           </Typography>
         </DialogContent>
         <DialogActions>

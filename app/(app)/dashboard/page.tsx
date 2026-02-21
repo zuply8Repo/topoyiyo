@@ -10,17 +10,14 @@ import {
 } from "@/lib/store";
 import {
   getActiveCampaign,
-  fetchCampaignContent,
   fetchAllUserContent,
   listUserCampaigns,
   type Campaign,
 } from "@/lib/api";
 import { getMonthGrid } from "@/lib/monthGrid";
 import type { ContentItem, ScheduleAssignment } from "@/lib/types";
-import { useSession } from "next-auth/react";
+import { SignedIn, useAuth } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
-import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
-import PublishIcon from "@mui/icons-material/Publish";
 import ClearIcon from "@mui/icons-material/Clear";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import InstagramIcon from "@mui/icons-material/Instagram";
@@ -39,7 +36,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import React from "react";
+import React, { Suspense } from "react";
 
 function byTime(a: ScheduleAssignment, b: ScheduleAssignment) {
   const ao = a.order ?? 0;
@@ -48,9 +45,27 @@ function byTime(a: ScheduleAssignment, b: ScheduleAssignment) {
   return a.time.localeCompare(b.time);
 }
 
+function DashboardLoadingFallback() {
+  return (
+    <Stack spacing={2.5} alignItems="center" justifyContent="center" sx={{ minHeight: 400 }}>
+      <CircularProgress />
+      <Typography color="text.secondary">Loading dashboard...</Typography>
+    </Stack>
+  );
+}
+
 export default function DashboardPage() {
-  const { data: session } = useSession();
-  const userId = session?.user?.id;
+  return (
+    <Suspense fallback={<DashboardLoadingFallback />}>
+      <SignedIn>
+        <DashboardContent />
+      </SignedIn>
+    </Suspense>
+  );
+}
+
+function DashboardContent() {
+  const { userId, isLoaded, getToken } = useAuth();
   const searchParams = useSearchParams();
 
   const [campaign, setCampaign] = React.useState<Campaign | null>(null);
@@ -58,6 +73,7 @@ export default function DashboardPage() {
   const [contentItems, setContentItems] = React.useState<ContentItem[]>([]);
   const [schedule, setSchedule] = React.useState<ScheduleAssignment[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [toast, setToast] = React.useState<string | null>(null);
   const [instagramPosts, setInstagramPosts] = React.useState<InstagramScheduledPost[]>([]);
 
@@ -86,22 +102,24 @@ export default function DashboardPage() {
 
     try {
       setLoading(true);
-      
+      setLoadError(null);
+      const token = await getToken();
+
       // Get active campaign (for header display)
-      const activeCampaign = await getActiveCampaign(userId);
+      const activeCampaign = await getActiveCampaign(token ?? undefined);
       setCampaign(activeCampaign);
-      
+
       // Fetch ALL user campaigns (to map campaign IDs to names)
-      const allCampaigns = await listUserCampaigns(userId);
+      const allCampaigns = await listUserCampaigns(50, token ?? undefined);
       setCampaigns(allCampaigns);
-      
+
       // Fetch ALL content items across all campaigns
-      const allContent = await fetchAllUserContent(userId);
+      const allContent = await fetchAllUserContent(undefined, 100, token ?? undefined);
       setContentItems(allContent);
-      
+
       // Load schedule (still from localStorage for now)
       setSchedule(getSchedule(userId));
-      
+
       // Load Instagram scheduled posts
       try {
         const igPosts = await listScheduledPosts(userId);
@@ -111,12 +129,15 @@ export default function DashboardPage() {
         // Not critical, continue without Instagram data
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load content";
       console.error("Failed to load campaign content:", error);
+      setLoadError(message);
       setContentItems([]);
+      setToast(message);
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, getToken]);
 
   const refresh = React.useCallback(() => {
     loadCampaignContent();
@@ -242,6 +263,7 @@ export default function DashboardPage() {
 
   const onPointerUpDrag = (e: React.PointerEvent) => {
     if (!dragging) return;
+    if (!userId) return;
     const ctx = getDropContextFromPoint(e.clientX, e.clientY);
     const dropDateISO = ctx?.dateISO ?? null;
     const targetItemId = ctx?.targetItemId ?? null;
@@ -276,11 +298,41 @@ export default function DashboardPage() {
     setHoverDateISO(null);
   };
 
-  if (loading) {
+  if (!isLoaded) {
+    return (
+      <Stack spacing={2.5} alignItems="center" justifyContent="center" sx={{ minHeight: 400 }}>
+        <CircularProgress />
+        <Typography color="text.secondary">Loading...</Typography>
+      </Stack>
+    );
+  }
+
+  if (!userId) {
+    return (
+      <Stack spacing={2.5} alignItems="center" justifyContent="center" sx={{ minHeight: 400 }}>
+        <Typography color="text.secondary">Please sign in to continue.</Typography>
+      </Stack>
+    );
+  }
+
+  if (loading && !loadError) {
     return (
       <Stack spacing={2.5} alignItems="center" justifyContent="center" sx={{ minHeight: 400 }}>
         <CircularProgress />
         <Typography color="text.secondary">Loading dashboard...</Typography>
+      </Stack>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Stack spacing={2.5} alignItems="center" justifyContent="center" sx={{ minHeight: 400 }}>
+        <Alert severity="error" sx={{ maxWidth: 400 }}>
+          {loadError}
+        </Alert>
+        <Button variant="contained" onClick={refresh} sx={{ textTransform: "none", borderRadius: 999 }}>
+          Retry
+        </Button>
       </Stack>
     );
   }

@@ -113,7 +113,7 @@ export interface PromptResponse {
   prompt_type: PromptType;
   asset_id: string;
   full_prompt: string;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
   status: PromptStatus;
   engine: GenerationEngine;
   user_edits?: string;

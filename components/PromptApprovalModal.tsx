@@ -9,7 +9,6 @@ import {
   Typography,
   Tabs,
   Tab,
-  Grid,
   IconButton,
   Chip,
   Alert,
@@ -213,10 +212,16 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
               {/* Tab Panels */}
               <TabPanel value={tabValue} index={0}>
                 {videoPrompts.length > 0 ? (
-                  <Grid container spacing={3}>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' },
+                      gap: 3,
+                    }}
+                  >
                     {videoPrompts.map((prompt) => (
                       <Fade key={prompt.id} in={true} timeout={300}>
-                        <Grid item xs={12} md={6} lg={4}>
+                        <Box sx={{ minWidth: 0 }}>
                           <PromptCard
                             promptId={prompt.id}
                             assetId={prompt.asset_id}
@@ -230,10 +235,10 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
                             onReview={handleReview}
                             isApproving={approvingPrompts.has(prompt.id)}
                           />
-                        </Grid>
+                        </Box>
                       </Fade>
                     ))}
-                  </Grid>
+                  </Box>
                 ) : (
                   <Alert severity="success" sx={{ mt: 2 }}>
                     All video prompts approved! ✓
@@ -243,10 +248,16 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
 
               <TabPanel value={tabValue} index={1}>
                 {storyImagePrompts.length > 0 ? (
-                  <Grid container spacing={3}>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' },
+                      gap: 3,
+                    }}
+                  >
                     {storyImagePrompts.map((prompt) => (
                       <Fade key={prompt.id} in={true} timeout={300}>
-                        <Grid item xs={12} md={6} lg={4}>
+                        <Box sx={{ minWidth: 0 }}>
                           <PromptCard
                             promptId={prompt.id}
                             assetId={prompt.asset_id}
@@ -260,10 +271,10 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
                             onReview={handleReview}
                             isApproving={approvingPrompts.has(prompt.id)}
                           />
-                        </Grid>
+                        </Box>
                       </Fade>
                     ))}
-                  </Grid>
+                  </Box>
                 ) : (
                   <Alert severity="success" sx={{ mt: 2 }}>
                     All story image prompts approved! ✓
@@ -273,10 +284,16 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
 
               <TabPanel value={tabValue} index={2}>
                 {carouselImagePrompts.length > 0 ? (
-                  <Grid container spacing={3}>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' },
+                      gap: 3,
+                    }}
+                  >
                     {carouselImagePrompts.map((prompt) => (
                       <Fade key={prompt.id} in={true} timeout={300}>
-                        <Grid item xs={12} md={6} lg={4}>
+                        <Box sx={{ minWidth: 0 }}>
                           <PromptCard
                             promptId={prompt.id}
                             assetId={prompt.asset_id}
@@ -290,10 +307,10 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
                             onReview={handleReview}
                             isApproving={approvingPrompts.has(prompt.id)}
                           />
-                        </Grid>
+                        </Box>
                       </Fade>
                     ))}
-                  </Grid>
+                  </Box>
                 ) : (
                   <Alert severity="success" sx={{ mt: 2 }}>
                     All carousel image prompts approved! ✓

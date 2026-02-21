@@ -1,6 +1,5 @@
 "use client";
 
-import { signIn, useSession } from "next-auth/react";
 import GoogleIcon from "@mui/icons-material/Google";
 import {
   Avatar,
@@ -13,35 +12,16 @@ import {
 } from "@mui/material";
 import { useRouter } from "next/navigation";
 import React from "react";
+import { useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") || "/prompt";
 
   React.useEffect(() => {
-    if (status === "authenticated") {
-      router.replace("/prompt");
-    }
-  }, [status, router]);
-
-  const handleSignIn = async () => {
-    await signIn("google", { callbackUrl: "/prompt" });
-  };
-
-  if (status === "loading") {
-    return (
-      <Box
-        sx={{
-          minHeight: "100vh",
-          display: "grid",
-          placeItems: "center",
-          bgcolor: "background.default",
-        }}
-      >
-        <Typography>Loading...</Typography>
-      </Box>
-    );
-  }
+    router.replace(`/sign-in?next=${encodeURIComponent(next)}`);
+  }, [router, next]);
 
   return (
     <Box
@@ -80,7 +60,7 @@ export default function LoginPage() {
               size="large"
               variant="contained"
               startIcon={<GoogleIcon />}
-              onClick={handleSignIn}
+              onClick={() => router.push(`/sign-in?next=${encodeURIComponent(next)}`)}
               sx={{
                 textTransform: "none",
                 borderRadius: 999,

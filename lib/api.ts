@@ -7,6 +7,77 @@ import type { ContentItem, CampaignPrompts, PromptStatus, PromptResponse, Refere
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
+/**
+ * Helper function to create headers with Authorization token
+ */
+async function getAuthHeaders(token?: string | null): Promise<HeadersInit> {
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+  };
+  
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  
+  return headers;
+}
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  payload?: unknown;
+
+  constructor(message: string, status: number, code?: string, payload?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.payload = payload;
+  }
+}
+
+async function throwApiError(
+  response: Response,
+  fallbackMessage: string
+): Promise<never> {
+  try {
+    const error = await response.json();
+    const detail = error?.detail;
+    if (typeof detail === "string") {
+      throw new ApiError(detail, response.status, error?.code, error);
+    }
+    if (detail && typeof detail === "object") {
+      const message =
+        (detail as Record<string, unknown>).message as string | undefined;
+      const code = (detail as Record<string, unknown>).code as string | undefined;
+      throw new ApiError(message || fallbackMessage, response.status, code, detail);
+    }
+    throw new ApiError(error?.message || fallbackMessage, response.status, error?.code, error);
+  } catch (e) {
+    if (e instanceof ApiError) {
+      throw e;
+    }
+    throw new ApiError(fallbackMessage, response.status);
+  }
+}
+
+type BackendContentItem = {
+  id: string;
+  user_id: string;
+  campaign_id?: string;
+  asset_type: "image" | "video";
+  image_url?: string;
+  video_url?: string;
+  caption: string;
+  status: "pending" | "approved" | "rejected" | string;
+  created_at: string;
+  updated_at: string;
+};
+
+type BackendUserContentResponse = {
+  items: BackendContentItem[];
+};
+
 // ============================================================================
 // Campaign Generation Types
 // ============================================================================
@@ -32,7 +103,6 @@ export interface ChatMessage {
 export interface MarketingChatRequest {
   messages: ChatMessage[];
   conversation_id?: string;
-  user_id?: string;
 }
 
 export interface MarketingChatResponse {
@@ -56,38 +126,28 @@ export interface JobStatus {
 /**
  * Create a new campaign generation job
  *
- * @param userId - User ID
  * @param briefText - Campaign brief text
  * @param videoModel - Video generation model to use (sora2 or veo)
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns Campaign creation response with job_id
  * @throws Error if request fails
  */
 export async function createCampaign(
-  userId: string,
   briefText: string,
-  videoModel: VideoGenerationModel = "sora2"
+  videoModel: VideoGenerationModel = "sora2",
+  token?: string | null
 ): Promise<CreateCampaignResponse> {
   const response = await fetch(`${API_BASE_URL}/campaigns/generate`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await getAuthHeaders(token),
     body: JSON.stringify({
-      user_id: userId,
       brief_text: briefText,
       video_model: videoModel,
     }),
   });
 
   if (!response.ok) {
-    let errorMessage = "Failed to create campaign";
-    try {
-      const error = await response.json();
-      errorMessage = error.detail || errorMessage;
-    } catch {
-      // If parsing fails, use default message
-    }
-    throw new Error(errorMessage);
+    await throwApiError(response, "Failed to create campaign");
   }
 
   return response.json();
@@ -130,7 +190,6 @@ export interface ApproveBriefRequest {
   short_summary: string;
   markdown_report: string;
   conversation_id?: string;
-  user_id?: string;
 }
 
 export interface ApproveBriefResponse {
@@ -144,7 +203,7 @@ export interface ApproveBriefResponse {
  * @param shortSummary - Executive summary
  * @param markdownReport - Full markdown report
  * @param conversationId - Conversation ID
- * @param userId - User ID
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns Saved brief ID
  * @throws Error if request fails
  */
@@ -152,32 +211,22 @@ export async function approveMarketingBrief(
   shortSummary: string,
   markdownReport: string,
   conversationId?: string,
-  userId?: string
+  token?: string | null
 ): Promise<ApproveBriefResponse> {
   const requestBody: ApproveBriefRequest = {
     short_summary: shortSummary,
     markdown_report: markdownReport,
     conversation_id: conversationId,
-    user_id: userId,
   };
 
   const response = await fetch(`${API_BASE_URL}/marketing/brief/approve`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await getAuthHeaders(token),
     body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
-    let errorMessage = "Failed to approve brief";
-    try {
-      const error = await response.json();
-      errorMessage = error.detail || errorMessage;
-    } catch {
-      // If parsing fails, use default message
-    }
-    throw new Error(errorMessage);
+    await throwApiError(response, "Failed to approve brief");
   }
 
   return response.json();
@@ -192,38 +241,28 @@ export async function approveMarketingBrief(
  *
  * @param messages - Full conversation history
  * @param conversationId - Optional conversation ID for tracking
- * @param userId - Optional user ID
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns Agent response with updated conversation
  * @throws Error if request fails
  */
 export async function sendMarketingChatMessage(
   messages: ChatMessage[],
   conversationId?: string,
-  userId?: string
+  token?: string | null
 ): Promise<MarketingChatResponse> {
   const requestBody: MarketingChatRequest = {
     messages,
     conversation_id: conversationId,
-    user_id: userId,
   };
 
   const response = await fetch(`${API_BASE_URL}/marketing/brief/chat`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await getAuthHeaders(token),
     body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
-    let errorMessage = "Failed to send message";
-    try {
-      const error = await response.json();
-      errorMessage = error.detail || errorMessage;
-    } catch {
-      // If parsing fails, use default message
-    }
-    throw new Error(errorMessage);
+    await throwApiError(response, "Failed to send message");
   }
 
   return response.json();
@@ -258,22 +297,20 @@ export interface ActiveCampaignResponse {
 /**
  * Get all campaigns for a user
  * 
- * @param userId - User ID
  * @param limit - Maximum number of campaigns to return
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns List of campaigns with metadata
  * @throws Error if request fails
  */
 export async function listUserCampaigns(
-  userId: string,
-  limit: number = 50
+  limit: number = 50,
+  token?: string | null
 ): Promise<Campaign[]> {
   const response = await fetch(
-    `${API_BASE_URL}/campaigns/user/${userId}?limit=${limit}`,
+    `${API_BASE_URL}/campaigns/user/campaigns?limit=${limit}`,
     {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
@@ -295,20 +332,18 @@ export async function listUserCampaigns(
 /**
  * Get the user's active campaign (most recent completed or in_progress)
  * 
- * @param userId - User ID
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns Active campaign or null if user has no campaigns
  * @throws Error if request fails
  */
 export async function getActiveCampaign(
-  userId: string
+  token?: string | null
 ): Promise<Campaign | null> {
   const response = await fetch(
-    `${API_BASE_URL}/campaigns/user/${userId}/active`,
+    `${API_BASE_URL}/campaigns/user/active`,
     {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
@@ -353,21 +388,19 @@ export interface CampaignContentResponse {
  * Fetch all content items for a campaign
  * 
  * @param campaignId - Campaign UUID
- * @param userId - User ID for authorization
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns List of content items with images/videos
  * @throws Error if request fails
  */
 export async function fetchCampaignContent(
   campaignId: string,
-  userId: string
+  token?: string | null
 ): Promise<ContentItem[]> {
   const response = await fetch(
-    `${API_BASE_URL}/campaigns/${campaignId}/content?user_id=${userId}`,
+    `${API_BASE_URL}/campaigns/${campaignId}/content`,
     {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
@@ -402,27 +435,25 @@ export async function fetchCampaignContent(
 /**
  * Fetch all content items for a user across all campaigns
  * 
- * @param userId - User ID
  * @param status - Optional filter by status
  * @param limit - Maximum number of items to return (default: 100)
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns List of all content items
  * @throws Error if request fails
  */
 export async function fetchAllUserContent(
-  userId: string,
   status?: string,
-  limit: number = 100
+  limit: number = 100,
+  token?: string | null
 ): Promise<ContentItem[]> {
-  let url = `${API_BASE_URL}/campaigns/user/${userId}/content?limit=${limit}`;
+  let url = `${API_BASE_URL}/campaigns/user/content?limit=${limit}`;
   if (status) {
     url += `&status=${status}`;
   }
 
   const response = await fetch(url, {
     method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await getAuthHeaders(token),
   });
 
   if (!response.ok) {
@@ -436,10 +467,10 @@ export async function fetchAllUserContent(
     throw new Error(errorMessage);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as BackendUserContentResponse;
 
   // Map backend response to frontend ContentItem type
-  return data.items.map((item: any) => ({
+  return data.items.map((item) => ({
     id: item.id,
     userId: item.user_id,
     campaignId: item.campaign_id,
@@ -457,23 +488,21 @@ export async function fetchAllUserContent(
  * Update the caption of a content item
  * 
  * @param contentId - Content item ID
- * @param userId - User ID for authorization
  * @param caption - New caption text
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns Updated content item
  * @throws Error if request fails
  */
 export async function updateContentCaption(
   contentId: string,
-  userId: string,
-  caption: string
+  caption: string,
+  token?: string | null
 ): Promise<ContentItem> {
   const response = await fetch(
-    `${API_BASE_URL}/content/${contentId}/caption?user_id=${userId}`,
+    `${API_BASE_URL}/content/${contentId}/caption`,
     {
       method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
       body: JSON.stringify({ caption }),
     }
   );
@@ -510,20 +539,18 @@ export async function updateContentCaption(
  * Delete a content item
  * 
  * @param contentId - Content item ID
- * @param userId - User ID for authorization
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @throws Error if request fails
  */
 export async function deleteContentItem(
   contentId: string,
-  userId: string
+  token?: string | null
 ): Promise<void> {
   const response = await fetch(
-    `${API_BASE_URL}/content/${contentId}?user_id=${userId}`,
+    `${API_BASE_URL}/content/${contentId}`,
     {
       method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
@@ -596,7 +623,6 @@ export interface SavePromptsPayload {
     rationale: string;
     status?: string;
   }>;
-  user_id: string;
 }
 
 /**
@@ -604,23 +630,21 @@ export interface SavePromptsPayload {
  * 
  * @param campaignId - Campaign UUID
  * @param prompts - Complete prompt data from backend
- * @param userId - User ID for authorization
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns Success confirmation
  * @throws Error if request fails
  */
 export async function saveCampaignPrompts(
   campaignId: string,
   prompts: SavePromptsPayload,
-  userId: string
+  token?: string | null
 ): Promise<{ success: boolean; total_prompts: number }> {
   const response = await fetch(
     `${API_BASE_URL}/campaigns/${campaignId}/prompts/save`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ ...prompts, user_id: userId }),
+      headers: await getAuthHeaders(token),
+      body: JSON.stringify(prompts),
     }
   );
 
@@ -642,30 +666,28 @@ export async function saveCampaignPrompts(
  * Get all prompts for a campaign
  * 
  * @param campaignId - Campaign UUID
- * @param userId - User ID for authorization
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns All prompts organized by type
  * @throws Error if request fails
  */
 export async function getCampaignPrompts(
   campaignId: string,
-  userId: string
+  token?: string | null
 ): Promise<{
   success: boolean;
   campaign_id: string;
   campaign_name: string;
-  creative_direction: Record<string, any>;
+  creative_direction: Record<string, unknown>;
   video_prompts: PromptResponse[];
   story_images: PromptResponse[];
   carousel_images: PromptResponse[];
   total: number;
 }> {
   const response = await fetch(
-    `${API_BASE_URL}/campaigns/${campaignId}/prompts?user_id=${userId}`,
+    `${API_BASE_URL}/campaigns/${campaignId}/prompts`,
     {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
@@ -687,27 +709,24 @@ export async function getCampaignPrompts(
  * Update a single prompt (edit or status change)
  * 
  * @param promptId - Prompt UUID
- * @param userId - User ID for authorization
  * @param fullPrompt - Updated prompt text
  * @param status - New status
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns Updated prompt data
  * @throws Error if request fails
  */
 export async function updatePrompt(
   promptId: string,
-  userId: string,
   fullPrompt: string,
-  status: PromptStatus
+  status: PromptStatus,
+  token?: string | null
 ): Promise<{ success: boolean; prompt: PromptResponse }> {
   const response = await fetch(`${API_BASE_URL}/prompts/${promptId}`, {
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await getAuthHeaders(token),
     body: JSON.stringify({
       full_prompt: fullPrompt,
       status,
-      user_id: userId,
     }),
   });
 
@@ -729,15 +748,15 @@ export async function updatePrompt(
  * Approve a single prompt and trigger immediate generation
  * 
  * @param promptId - Prompt UUID
- * @param userId - User ID for authorization
  * @param campaignId - Campaign UUID
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns Job ID and status
  * @throws Error if request fails
  */
 export async function approveAndGeneratePrompt(
   promptId: string,
-  userId: string,
-  campaignId: string
+  campaignId: string,
+  token?: string | null
 ): Promise<{
   success: boolean;
   job_id: string;
@@ -748,25 +767,15 @@ export async function approveAndGeneratePrompt(
     `${API_BASE_URL}/prompts/${promptId}/approve-and-generate`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
       body: JSON.stringify({ 
-        user_id: userId,
         campaign_id: campaignId 
       }),
     }
   );
 
   if (!response.ok) {
-    let errorMessage = "Failed to approve and generate prompt";
-    try {
-      const error = await response.json();
-      errorMessage = error.detail || errorMessage;
-    } catch {
-      // If parsing fails, use default message
-    }
-    throw new Error(errorMessage);
+    await throwApiError(response, "Failed to approve and generate prompt");
   }
 
   return response.json();
@@ -776,13 +785,13 @@ export async function approveAndGeneratePrompt(
  * Trigger content generation from approved prompts
  * 
  * @param campaignId - Campaign UUID
- * @param userId - User ID for authorization
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns Job ID and approval counts
  * @throws Error if request fails
  */
 export async function generateApprovedContent(
   campaignId: string,
-  userId: string
+  token?: string | null
 ): Promise<{
   success: boolean;
   job_id: string;
@@ -794,22 +803,13 @@ export async function generateApprovedContent(
     `${API_BASE_URL}/campaigns/${campaignId}/prompts/generate`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ user_id: userId }),
+      headers: await getAuthHeaders(token),
+      body: JSON.stringify({}),
     }
   );
 
   if (!response.ok) {
-    let errorMessage = "Failed to generate content";
-    try {
-      const error = await response.json();
-      errorMessage = error.detail || errorMessage;
-    } catch {
-      // If parsing fails, use default message
-    }
-    throw new Error(errorMessage);
+    await throwApiError(response, "Failed to generate content");
   }
 
   return response.json();
@@ -825,7 +825,7 @@ export async function generateApprovedContent(
  * @param promptId - Prompt UUID
  * @param imageType - Type of image (logo or product)
  * @param file - Image file to upload
- * @param userId - User ID for authorization
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns Uploaded image metadata
  * @throws Error if request fails
  */
@@ -833,30 +833,28 @@ export async function uploadReferenceImage(
   promptId: string,
   imageType: ReferenceImageType,
   file: File,
-  userId: string
+  token?: string | null
 ): Promise<ReferenceImage> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('image_type', imageType);
-  formData.append('user_id', userId);
+
+  const headers: HeadersInit = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
 
   const response = await fetch(
     `${API_BASE_URL}/prompts/${promptId}/reference-images/upload`,
     {
       method: "POST",
+      headers,
       body: formData,
     }
   );
 
   if (!response.ok) {
-    let errorMessage = "Failed to upload reference image";
-    try {
-      const error = await response.json();
-      errorMessage = error.detail || errorMessage;
-    } catch {
-      // If parsing fails, use default message
-    }
-    throw new Error(errorMessage);
+    await throwApiError(response, "Failed to upload reference image");
   }
 
   return response.json();
@@ -866,33 +864,24 @@ export async function uploadReferenceImage(
  * Get all active reference images for a prompt
  * 
  * @param promptId - Prompt UUID
- * @param userId - User ID for authorization
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns List of active reference images
  * @throws Error if request fails
  */
 export async function getReferenceImages(
   promptId: string,
-  userId: string
+  token?: string | null
 ): Promise<ReferenceImage[]> {
   const response = await fetch(
-    `${API_BASE_URL}/prompts/${promptId}/reference-images?user_id=${userId}`,
+    `${API_BASE_URL}/prompts/${promptId}/reference-images`,
     {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
   if (!response.ok) {
-    let errorMessage = "Failed to get reference images";
-    try {
-      const error = await response.json();
-      errorMessage = error.detail || errorMessage;
-    } catch {
-      // If parsing fails, use default message
-    }
-    throw new Error(errorMessage);
+    await throwApiError(response, "Failed to get reference images");
   }
 
   const data = await response.json();
@@ -903,31 +892,83 @@ export async function getReferenceImages(
  * Delete a reference image
  * 
  * @param imageId - Reference image UUID
- * @param userId - User ID for authorization
+ * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @throws Error if request fails
  */
 export async function deleteReferenceImage(
   imageId: string,
-  userId: string
+  token?: string | null
 ): Promise<void> {
   const response = await fetch(
-    `${API_BASE_URL}/reference-images/${imageId}?user_id=${userId}`,
+    `${API_BASE_URL}/reference-images/${imageId}`,
     {
       method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
   if (!response.ok) {
-    let errorMessage = "Failed to delete reference image";
-    try {
-      const error = await response.json();
-      errorMessage = error.detail || errorMessage;
-    } catch {
-      // If parsing fails, use default message
-    }
-    throw new Error(errorMessage);
+    await throwApiError(response, "Failed to delete reference image");
   }
+}
+
+// ============================================================================
+// Credits API
+// ============================================================================
+
+export interface CreditBalanceResponse {
+  user_id: string;
+  balance_eur: number;
+}
+
+export interface CreditsPricingResponse {
+  text_model_eur_per_1000_tokens: number;
+  veo_video_eur_per_unit: number;
+}
+
+export async function getCreditBalance(token?: string | null): Promise<number> {
+  const response = await fetch(`${API_BASE_URL}/credits/balance`, {
+    method: "GET",
+    headers: await getAuthHeaders(token),
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Failed to get credit balance");
+  }
+
+  const data: CreditBalanceResponse = await response.json();
+  return data.balance_eur;
+}
+
+export async function getCreditsPricing(): Promise<CreditsPricingResponse> {
+  const response = await fetch(`${API_BASE_URL}/credits/pricing`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to get pricing");
+  }
+  return response.json();
+}
+
+export async function topUpCredits(
+  amountEur: number,
+  token?: string | null
+): Promise<number> {
+  const response = await fetch(`${API_BASE_URL}/credits/top-up`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify({
+      amount_eur: amountEur,
+    }),
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Failed to top up credits");
+  }
+
+  const data = (await response.json()) as { balance_eur: number };
+  return data.balance_eur;
 }
