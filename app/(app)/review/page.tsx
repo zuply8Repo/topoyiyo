@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 import ContentCard from "@/components/ContentCard";
 import CampaignHeader from "@/components/CampaignHeader";
 import CampaignSelector from "@/components/CampaignSelector";

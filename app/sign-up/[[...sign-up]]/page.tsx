@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 import { SignUp } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import React from "react";

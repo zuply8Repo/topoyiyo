@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 import TimeSelectDialog from "@/components/TimeSelectDialog";
 import InstagramScheduleDialog from "@/components/InstagramScheduleDialog";
 import {

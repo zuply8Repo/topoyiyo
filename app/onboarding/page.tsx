@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 import { useAuth, useClerk } from "@clerk/nextjs";
 import {
   Alert,

@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 import { Box, CircularProgress, LinearProgress, Paper, Stack, Typography, Alert } from "@mui/material";
 import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";

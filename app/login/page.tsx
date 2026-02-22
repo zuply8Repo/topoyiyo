@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 import GoogleIcon from "@mui/icons-material/Google";
 import {
   Avatar,
