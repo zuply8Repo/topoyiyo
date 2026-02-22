@@ -1,7 +1,6 @@
 "use client";
 
-export const dynamic = 'force-dynamic';
-
+import { Suspense } from "react";
 import ContentCard from "@/components/ContentCard";
 import CampaignHeader from "@/components/CampaignHeader";
 import CampaignSelector from "@/components/CampaignSelector";
@@ -35,7 +34,7 @@ import RateReviewIcon from "@mui/icons-material/RateReview";
 import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 
-export default function ReviewPage() {
+function ReviewPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const campaignIdFromUrl = searchParams.get("campaignId");
@@ -552,5 +551,13 @@ export default function ReviewPage() {
         </Alert>
       </Snackbar>
     </Stack>
+  );
+}
+
+export default function ReviewPage() {
+  return (
+    <Suspense>
+      <ReviewPageContent />
+    </Suspense>
   );
 }

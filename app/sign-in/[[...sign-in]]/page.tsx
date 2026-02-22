@@ -1,12 +1,10 @@
 "use client";
 
-export const dynamic = 'force-dynamic';
-
 import { SignIn } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
-import React from "react";
+import React, { Suspense } from "react";
 
-export default function SignInPage() {
+function SignInContent() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/prompt";
 
@@ -22,3 +20,10 @@ export default function SignInPage() {
   );
 }
 
+export default function SignInPage() {
+  return (
+    <Suspense>
+      <SignInContent />
+    </Suspense>
+  );
+}

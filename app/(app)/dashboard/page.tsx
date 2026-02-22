@@ -1,7 +1,6 @@
 "use client";
 
-export const dynamic = 'force-dynamic';
-
+import { Suspense } from "react";
 import TimeSelectDialog from "@/components/TimeSelectDialog";
 import InstagramScheduleDialog from "@/components/InstagramScheduleDialog";
 import {
@@ -56,7 +55,7 @@ function DashboardLoadingFallback() {
   );
 }
 
-export default function DashboardPage() {
+function DashboardPageContent() {
   return (
     <Suspense fallback={<DashboardLoadingFallback />}>
       <SignedIn>
@@ -874,5 +873,13 @@ function DashboardContent() {
         </Snackbar>
       ) : null}
     </Stack>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense>
+      <DashboardPageContent />
+    </Suspense>
   );
 }

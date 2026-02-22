@@ -1,12 +1,10 @@
 "use client";
 
-export const dynamic = 'force-dynamic';
-
 import { SignUp } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
-import React from "react";
+import React, { Suspense } from "react";
 
-export default function SignUpPage() {
+function SignUpContent() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/onboarding";
 
@@ -22,3 +20,10 @@ export default function SignUpPage() {
   );
 }
 
+export default function SignUpPage() {
+  return (
+    <Suspense>
+      <SignUpContent />
+    </Suspense>
+  );
+}

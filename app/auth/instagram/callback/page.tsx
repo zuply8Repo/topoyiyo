@@ -1,8 +1,6 @@
 "use client";
 
-export const dynamic = 'force-dynamic';
-
-import React from "react";
+import React, { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -19,7 +17,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorIcon from "@mui/icons-material/Error";
 import { completeInstagramAuth } from "@/lib/instagram";
 
-export default function InstagramCallbackPage() {
+function InstagramCallbackContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { userId } = useAuth();
@@ -170,5 +168,13 @@ export default function InstagramCallbackPage() {
         </Paper>
       </Box>
     </Container>
+  );
+}
+
+export default function InstagramCallbackPage() {
+  return (
+    <Suspense>
+      <InstagramCallbackContent />
+    </Suspense>
   );
 }

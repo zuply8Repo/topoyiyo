@@ -1,7 +1,6 @@
 "use client";
 
-export const dynamic = 'force-dynamic';
-
+import { Suspense } from "react";
 import { useAuth, useClerk } from "@clerk/nextjs";
 import {
   Alert,
@@ -24,7 +23,7 @@ type OnboardingPayload = {
   address: string;
 };
 
-export default function OnboardingPage() {
+function OnboardingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/prompt";
@@ -168,5 +167,13 @@ export default function OnboardingPage() {
         </Stack>
       </Paper>
     </Container>
+  );
+}
+
+export default function OnboardingPage() {
+  return (
+    <Suspense>
+      <OnboardingPageContent />
+    </Suspense>
   );
 }

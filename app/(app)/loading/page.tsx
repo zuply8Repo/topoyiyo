@@ -1,13 +1,12 @@
 "use client";
 
-export const dynamic = 'force-dynamic';
-
+import { Suspense } from "react";
 import { Box, CircularProgress, LinearProgress, Paper, Stack, Typography, Alert } from "@mui/material";
 import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 import { getCampaignStatus } from "@/lib/api";
 
-export default function LoadingPage() {
+function LoadingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const jobId = searchParams.get("job_id");
@@ -160,3 +159,11 @@ export default function LoadingPage() {
 }
 
 
+
+export default function LoadingPage() {
+  return (
+    <Suspense>
+      <LoadingPageContent />
+    </Suspense>
+  );
+}

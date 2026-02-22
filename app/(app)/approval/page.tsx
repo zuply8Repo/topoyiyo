@@ -1,8 +1,6 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import {
@@ -48,7 +46,7 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
-export default function ApprovalPage() {
+function ApprovalPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const campaignId = searchParams.get('campaignId');
@@ -601,5 +599,13 @@ export default function ApprovalPage() {
         />
       )}
     </Container>
+  );
+}
+
+export default function ApprovalPage() {
+  return (
+    <Suspense>
+      <ApprovalPageContent />
+    </Suspense>
   );
 }

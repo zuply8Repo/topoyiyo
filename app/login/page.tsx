@@ -1,7 +1,6 @@
 "use client";
 
-export const dynamic = 'force-dynamic';
-
+import { Suspense } from "react";
 import GoogleIcon from "@mui/icons-material/Google";
 import {
   Avatar,
@@ -16,7 +15,7 @@ import { useRouter } from "next/navigation";
 import React from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/prompt";
@@ -84,3 +83,11 @@ export default function LoginPage() {
 }
 
 
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginPageContent />
+    </Suspense>
+  );
+}
