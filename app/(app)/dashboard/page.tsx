@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import React, { Suspense } from "react";
 import TimeSelectDialog from "@/components/TimeSelectDialog";
 import InstagramScheduleDialog from "@/components/InstagramScheduleDialog";
 import {
