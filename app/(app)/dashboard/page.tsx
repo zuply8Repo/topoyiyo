@@ -37,7 +37,6 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import React, { Suspense } from "react";
 
 function byTime(a: ScheduleAssignment, b: ScheduleAssignment) {
   const ao = a.order ?? 0;

@@ -1,6 +1,4 @@
 "use client";
-
-import { Suspense } from "react";
 import ContentCard from "@/components/ContentCard";
 import CampaignHeader from "@/components/CampaignHeader";
 import CampaignSelector from "@/components/CampaignSelector";
@@ -32,7 +30,7 @@ import {
 } from "@mui/material";
 import RateReviewIcon from "@mui/icons-material/RateReview";
 import { useRouter, useSearchParams } from "next/navigation";
-import React from "react";
+import React, { Suspense } from "react";
 
 function ReviewPageContent() {
   const router = useRouter();

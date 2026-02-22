@@ -1,6 +1,4 @@
 "use client";
-
-import { Suspense } from "react";
 import GoogleIcon from "@mui/icons-material/Google";
 import {
   Avatar,
@@ -12,7 +10,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useRouter } from "next/navigation";
-import React from "react";
+import React, { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 function LoginPageContent() {

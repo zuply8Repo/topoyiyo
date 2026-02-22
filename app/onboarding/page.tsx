@@ -1,6 +1,4 @@
 "use client";
-
-import { Suspense } from "react";
 import { useAuth, useClerk } from "@clerk/nextjs";
 import {
   Alert,
@@ -13,7 +11,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useRouter, useSearchParams } from "next/navigation";
-import React from "react";
+import React, { Suspense } from "react";
 
 type OnboardingPayload = {
   full_name: string;
