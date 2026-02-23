@@ -20,7 +20,7 @@ import { completeInstagramAuth } from "@/lib/instagram";
 function InstagramCallbackContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { userId } = useAuth();
+  const { userId, getToken } = useAuth();
 
   const [status, setStatus] = React.useState<"loading" | "success" | "error">("loading");
   const [error, setError] = React.useState<string | null>(null);
@@ -65,8 +65,8 @@ function InstagramCallbackContent() {
         throw new Error("Invalid state parameter. Possible CSRF attack.");
       }
 
-      // Complete OAuth flow
-      const response = await completeInstagramAuth(code, state, userId);
+      const token = await getToken();
+      const response = await completeInstagramAuth(code, state, userId, token);
       
       setAccountUsername(response.instagram_username);
       setStatus("success");

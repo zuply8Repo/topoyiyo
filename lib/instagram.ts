@@ -9,6 +9,14 @@ export type { InstagramAccount, InstagramScheduledPost } from "./types";
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
+async function getAuthHeaders(token?: string | null): Promise<HeadersInit> {
+  const headers: HeadersInit = { "Content-Type": "application/json" };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 // ============================================================================
 // Authentication
 // ============================================================================
@@ -31,12 +39,10 @@ export interface CompleteAuthResponse {
  * @returns Authorization URL and state token
  * @throws Error if request fails
  */
-export async function initInstagramAuth(): Promise<InitAuthResponse> {
+export async function initInstagramAuth(token?: string | null): Promise<InitAuthResponse> {
   const response = await fetch(`${API_BASE_URL}/instagram/auth/init`, {
     method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await getAuthHeaders(token),
   });
 
   if (!response.ok) {
@@ -59,13 +65,12 @@ export async function initInstagramAuth(): Promise<InitAuthResponse> {
 export async function completeInstagramAuth(
   code: string,
   state: string,
-  userId: string
+  userId: string,
+  token?: string | null
 ): Promise<CompleteAuthResponse> {
   const response = await fetch(`${API_BASE_URL}/instagram/auth/callback`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await getAuthHeaders(token),
     body: JSON.stringify({ code, state, user_id: userId }),
   });
 
@@ -94,15 +99,14 @@ export interface ListAccountsResponse {
  * @throws Error if request fails
  */
 export async function listInstagramAccounts(
-  userId: string
+  userId: string,
+  token?: string | null
 ): Promise<InstagramAccount[]> {
   const response = await fetch(
     `${API_BASE_URL}/instagram/accounts?user_id=${userId}`,
     {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
@@ -123,15 +127,14 @@ export async function listInstagramAccounts(
  * @throws Error if request fails
  */
 export async function getActiveInstagramAccount(
-  userId: string
+  userId: string,
+  token?: string | null
 ): Promise<InstagramAccount | null> {
   const response = await fetch(
     `${API_BASE_URL}/instagram/accounts/active?user_id=${userId}`,
     {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
@@ -154,15 +157,14 @@ export async function getActiveInstagramAccount(
  * @throws Error if request fails
  */
 export async function disconnectInstagramAccount(
-  accountId: string
+  accountId: string,
+  token?: string | null
 ): Promise<void> {
   const response = await fetch(
     `${API_BASE_URL}/instagram/accounts/${accountId}`,
     {
       method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
@@ -210,13 +212,12 @@ export interface ListScheduledPostsResponse {
  * @throws Error if request fails
  */
 export async function scheduleInstagramPost(
-  request: SchedulePostRequest
+  request: SchedulePostRequest,
+  token?: string | null
 ): Promise<InstagramScheduledPost> {
   const response = await fetch(`${API_BASE_URL}/instagram/schedule`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await getAuthHeaders(token),
     body: JSON.stringify(request),
   });
 
@@ -236,13 +237,12 @@ export async function scheduleInstagramPost(
  * @throws Error if request fails
  */
 export async function scheduleInstagramPostsBatch(
-  request: ScheduleBatchRequest
+  request: ScheduleBatchRequest,
+  token?: string | null
 ): Promise<InstagramScheduledPost[]> {
   const response = await fetch(`${API_BASE_URL}/instagram/schedule/batch`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await getAuthHeaders(token),
     body: JSON.stringify(request),
   });
 
@@ -267,7 +267,8 @@ export async function scheduleInstagramPostsBatch(
 export async function listScheduledPosts(
   userId: string,
   status?: string,
-  campaignId?: string
+  campaignId?: string,
+  token?: string | null
 ): Promise<InstagramScheduledPost[]> {
   const params = new URLSearchParams({ user_id: userId });
   if (status) params.append("status", status);
@@ -277,9 +278,7 @@ export async function listScheduledPosts(
     `${API_BASE_URL}/instagram/schedule?${params.toString()}`,
     {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
@@ -304,15 +303,14 @@ export async function listScheduledPosts(
 export async function updateScheduledPost(
   postId: string,
   scheduledDate: string,
-  scheduledTime: string
+  scheduledTime: string,
+  token?: string | null
 ): Promise<InstagramScheduledPost> {
   const response = await fetch(
     `${API_BASE_URL}/instagram/schedule/${postId}`,
     {
       method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
       body: JSON.stringify({ scheduled_date: scheduledDate, scheduled_time: scheduledTime }),
     }
   );
@@ -331,14 +329,12 @@ export async function updateScheduledPost(
  * @param postId - Scheduled post ID
  * @throws Error if request fails
  */
-export async function cancelScheduledPost(postId: string): Promise<void> {
+export async function cancelScheduledPost(postId: string, token?: string | null): Promise<void> {
   const response = await fetch(
     `${API_BASE_URL}/instagram/schedule/${postId}`,
     {
       method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 
@@ -377,13 +373,12 @@ export interface PublishResponse {
  */
 export async function publishToInstagram(
   scheduledPostIds: string[],
-  userId: string
+  userId: string,
+  token?: string | null
 ): Promise<PublishResponse> {
   const response = await fetch(`${API_BASE_URL}/instagram/publish`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: await getAuthHeaders(token),
     body: JSON.stringify({
       user_id: userId,
       scheduled_post_ids: scheduledPostIds,
@@ -406,15 +401,14 @@ export async function publishToInstagram(
  * @throws Error if request fails
  */
 export async function getScheduledPostStatus(
-  postId: string
+  postId: string,
+  token?: string | null
 ): Promise<InstagramScheduledPost> {
   const response = await fetch(
     `${API_BASE_URL}/instagram/schedule/${postId}/status`,
     {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await getAuthHeaders(token),
     }
   );
 

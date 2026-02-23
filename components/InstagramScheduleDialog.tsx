@@ -24,6 +24,7 @@ import InstagramIcon from "@mui/icons-material/Instagram";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorIcon from "@mui/icons-material/Error";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import { useAuth } from "@clerk/nextjs";
 import type { ContentItem, InstagramAccount, ScheduleAssignment } from "@/lib/types";
 import {
   getActiveInstagramAccount,
@@ -54,6 +55,7 @@ export default function InstagramScheduleDialog({
   contentItems,
   onSuccess,
 }: InstagramScheduleDialogProps) {
+  const { getToken } = useAuth();
   const [account, setAccount] = React.useState<InstagramAccount | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [state, setState] = React.useState<ProcessingState>("idle");
@@ -83,10 +85,10 @@ export default function InstagramScheduleDialog({
   const checkAndLoadAccount = async () => {
     try {
       setLoading(true);
-      const activeAccount = await getActiveInstagramAccount(userId);
+      const token = await getToken();
+      const activeAccount = await getActiveInstagramAccount(userId, token);
       
       if (!activeAccount) {
-        // No account connected - trigger OAuth flow
         await initiateInstagramAuth();
       } else {
         setAccount(activeAccount);
@@ -101,7 +103,8 @@ export default function InstagramScheduleDialog({
 
   const initiateInstagramAuth = async () => {
     try {
-      const { authorization_url, state } = await initInstagramAuth();
+      const token = await getToken();
+      const { authorization_url, state } = await initInstagramAuth(token);
       
       // Save state and return URL for callback verification
       localStorage.setItem("instagram_oauth_state", state);
@@ -119,7 +122,8 @@ export default function InstagramScheduleDialog({
   const loadAccount = async () => {
     try {
       setLoading(true);
-      const activeAccount = await getActiveInstagramAccount(userId);
+      const token = await getToken();
+      const activeAccount = await getActiveInstagramAccount(userId, token);
       setAccount(activeAccount);
       
       if (!activeAccount) {
@@ -141,7 +145,8 @@ export default function InstagramScheduleDialog({
       setError(null);
       setProgress(0);
 
-      // Prepare posts for batch scheduling
+      const token = await getToken();
+
       const posts = scheduledItems.map((item) => ({
         content_item_id: item.itemId,
         scheduled_date: item.dateISO,
@@ -149,19 +154,16 @@ export default function InstagramScheduleDialog({
         campaign_id: campaignId,
       }));
 
-      // Schedule to database
-      const scheduledPosts = await scheduleInstagramPostsBatch({
-        user_id: userId,
-        instagram_account_id: account.id,
-        posts,
-      });
+      const scheduledPosts = await scheduleInstagramPostsBatch(
+        { user_id: userId, instagram_account_id: account.id, posts },
+        token
+      );
 
       setProgress(50);
       setState("publishing");
 
-      // Publish immediately to Instagram
       const postIds = scheduledPosts.map((p) => p.id);
-      const results = await publishToInstagram(postIds, userId);
+      const results = await publishToInstagram(postIds, userId, token);
 
       setPublishResults(results);
       setProgress(100);

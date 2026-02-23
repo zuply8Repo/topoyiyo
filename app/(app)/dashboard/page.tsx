@@ -122,7 +122,7 @@ function DashboardContent() {
 
       // Load Instagram scheduled posts
       try {
-        const igPosts = await listScheduledPosts(userId);
+        const igPosts = await listScheduledPosts(userId, undefined, undefined, token);
         setInstagramPosts(igPosts);
       } catch (error) {
         console.error("Failed to load Instagram posts:", error);

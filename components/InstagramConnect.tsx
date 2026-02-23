@@ -20,6 +20,7 @@ import {
 import InstagramIcon from "@mui/icons-material/Instagram";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
+import { useAuth } from "@clerk/nextjs";
 import type { InstagramAccount } from "@/lib/types";
 import {
   getActiveInstagramAccount,
@@ -36,6 +37,7 @@ export default function InstagramConnect({
   userId,
   onAccountChange,
 }: InstagramConnectProps) {
+  const { getToken } = useAuth();
   const [account, setAccount] = React.useState<InstagramAccount | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [connecting, setConnecting] = React.useState(false);
@@ -51,7 +53,8 @@ export default function InstagramConnect({
     try {
       setLoading(true);
       setError(null);
-      const activeAccount = await getActiveInstagramAccount(userId);
+      const token = await getToken();
+      const activeAccount = await getActiveInstagramAccount(userId, token);
       setAccount(activeAccount);
       onAccountChange?.(activeAccount);
     } catch (err: unknown) {
@@ -67,8 +70,8 @@ export default function InstagramConnect({
       setConnecting(true);
       setError(null);
 
-      // Initialize OAuth flow
-      const { authorization_url, state } = await initInstagramAuth();
+      const token = await getToken();
+      const { authorization_url, state } = await initInstagramAuth(token);
 
       // Save state to localStorage for callback verification
       localStorage.setItem("instagram_oauth_state", state);
@@ -106,7 +109,8 @@ export default function InstagramConnect({
 
     try {
       setLoading(true);
-      await disconnectInstagramAccount(account.id);
+      const token = await getToken();
+      await disconnectInstagramAccount(account.id, token);
       setAccount(null);
       onAccountChange?.(null);
       setDisconnectDialogOpen(false);
