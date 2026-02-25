@@ -51,7 +51,7 @@ const PromptEditModal: React.FC<PromptEditModalProps> = ({
   metadata,
   onSave,
 }) => {
-  const { userId } = useAuth();
+  const { userId, getToken } = useAuth();
   
   const [editedPrompt, setEditedPrompt] = useState(initialPrompt);
   const [isSaving, setIsSaving] = useState(false);
@@ -85,7 +85,8 @@ const PromptEditModal: React.FC<PromptEditModalProps> = ({
     
     try {
       setLoadingImages(true);
-      const images = await getReferenceImages(promptId, userId);
+      const token = await getToken();
+      const images = await getReferenceImages(promptId, token, userId);
       setReferenceImages(images);
     } catch (err) {
       console.error('Failed to load reference images:', err);
@@ -203,7 +204,8 @@ const PromptEditModal: React.FC<PromptEditModalProps> = ({
         setIsUploadingProduct(true);
       }
 
-      const uploadedImage = await uploadReferenceImage(promptId, imageType, file, userId);
+      const token = await getToken();
+      const uploadedImage = await uploadReferenceImage(promptId, imageType, file, token, userId);
       
       // Update local state - replace existing image of same type
       setReferenceImages((prev) => {
@@ -227,7 +229,8 @@ const PromptEditModal: React.FC<PromptEditModalProps> = ({
     if (!userId) return;
 
     try {
-      await deleteReferenceImage(imageId, userId);
+      const token = await getToken();
+      await deleteReferenceImage(imageId, token, userId);
       setReferenceImages((prev) => prev.filter((img) => img.id !== imageId));
       // Mark as having image changes so Save button becomes active
       setHasImageChanges(true);

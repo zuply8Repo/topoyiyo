@@ -55,7 +55,7 @@ const PromptReviewModal: React.FC<PromptReviewModalProps> = ({
   onEdit,
   onReject,
 }) => {
-  const { userId } = useAuth();
+  const { userId, getToken } = useAuth();
   
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
   const [loadingImages, setLoadingImages] = useState(false);
@@ -72,7 +72,8 @@ const PromptReviewModal: React.FC<PromptReviewModalProps> = ({
     
     try {
       setLoadingImages(true);
-      const images = await getReferenceImages(promptId, userId);
+      const token = await getToken();
+      const images = await getReferenceImages(promptId, token, userId);
       setReferenceImages(images);
     } catch (err) {
       console.error('Failed to load reference images:', err);

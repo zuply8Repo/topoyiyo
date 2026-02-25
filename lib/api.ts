@@ -825,7 +825,8 @@ export async function generateApprovedContent(
  * @param promptId - Prompt UUID
  * @param imageType - Type of image (logo or product)
  * @param file - Image file to upload
- * @param token - Clerk session token (optional, will be required for authenticated requests)
+ * @param token - Clerk JWT session token
+ * @param userId - Clerk user ID
  * @returns Uploaded image metadata
  * @throws Error if request fails
  */
@@ -833,11 +834,15 @@ export async function uploadReferenceImage(
   promptId: string,
   imageType: ReferenceImageType,
   file: File,
-  token?: string | null
+  token?: string | null,
+  userId?: string | null
 ): Promise<ReferenceImage> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('image_type', imageType);
+  if (userId) {
+    formData.append('user_id', userId);
+  }
 
   const headers: HeadersInit = {};
   if (token) {
@@ -864,16 +869,19 @@ export async function uploadReferenceImage(
  * Get all active reference images for a prompt
  * 
  * @param promptId - Prompt UUID
- * @param token - Clerk session token (optional, will be required for authenticated requests)
+ * @param token - Clerk JWT session token
+ * @param userId - Clerk user ID
  * @returns List of active reference images
  * @throws Error if request fails
  */
 export async function getReferenceImages(
   promptId: string,
-  token?: string | null
+  token?: string | null,
+  userId?: string | null
 ): Promise<ReferenceImage[]> {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
   const response = await fetch(
-    `${API_BASE_URL}/prompts/${promptId}/reference-images`,
+    `${API_BASE_URL}/prompts/${promptId}/reference-images${params}`,
     {
       method: "GET",
       headers: await getAuthHeaders(token),
@@ -892,15 +900,18 @@ export async function getReferenceImages(
  * Delete a reference image
  * 
  * @param imageId - Reference image UUID
- * @param token - Clerk session token (optional, will be required for authenticated requests)
+ * @param token - Clerk JWT session token
+ * @param userId - Clerk user ID
  * @throws Error if request fails
  */
 export async function deleteReferenceImage(
   imageId: string,
-  token?: string | null
+  token?: string | null,
+  userId?: string | null
 ): Promise<void> {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
   const response = await fetch(
-    `${API_BASE_URL}/reference-images/${imageId}`,
+    `${API_BASE_URL}/reference-images/${imageId}${params}`,
     {
       method: "DELETE",
       headers: await getAuthHeaders(token),
