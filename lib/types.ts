@@ -15,6 +15,8 @@ export type Campaign = {
   updated_at: string;
 };
 
+export type InstagramMediaType = "REELS" | "STORIES" | "CAROUSEL";
+
 export type ContentItem = {
   id: string;
   userId?: string;
@@ -27,6 +29,8 @@ export type ContentItem = {
   regenerationRequested?: boolean;
   createdAt: number;
   updatedAt: number;
+  /** UI-only: user-selected Instagram media type (Reel vs Story) for 9:16 content */
+  instagramMediaType?: InstagramMediaType;
 };
 
 export type Session = {

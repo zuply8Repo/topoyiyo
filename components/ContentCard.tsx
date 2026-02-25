@@ -10,23 +10,32 @@ import {
   DialogActions,
   DialogContent,
   IconButton,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
 } from "@mui/material";
+import AutoStoriesIcon from "@mui/icons-material/AutoStories";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/Download";
 import PlayCircleFilledIcon from "@mui/icons-material/PlayCircleFilled";
+import SmartDisplayIcon from "@mui/icons-material/SmartDisplay";
 import React from "react";
 
 export type ContentCardProps = {
   item: ContentItem;
   campaignName?: string;
   onDelete: (id: string) => void;
+  /** When present, shows Reel/Story toggle for 9:16 video or image content */
+  mediaType?: "REELS" | "STORIES";
+  onMediaTypeChange?: (type: "REELS" | "STORIES") => void;
 };
 
 export default function ContentCard({
   item,
   campaignName,
   onDelete,
+  mediaType,
+  onMediaTypeChange,
 }: ContentCardProps) {
   const [previewOpen, setPreviewOpen] = React.useState(false);
 
@@ -181,6 +190,34 @@ export default function ContentCard({
           </Box>
         )}
       </Box>
+
+      {/* Reel / Story toggle - shown when mediaType + onMediaTypeChange are provided */}
+      {mediaType != null && onMediaTypeChange && (
+        <Box sx={{ px: 2, py: 1.5, borderTop: 1, borderColor: "divider" }}>
+          <ToggleButtonGroup
+            value={mediaType}
+            exclusive
+            onChange={(_, value) => value != null && onMediaTypeChange(value)}
+            fullWidth
+            size="small"
+            sx={{
+              "& .MuiToggleButton-root": {
+                textTransform: "none",
+                fontWeight: 700,
+              },
+            }}
+          >
+            <ToggleButton value="REELS" aria-label="Post as Reel">
+              <SmartDisplayIcon sx={{ mr: 0.75, fontSize: 20 }} />
+              Reel
+            </ToggleButton>
+            <ToggleButton value="STORIES" aria-label="Post as Story">
+              <AutoStoriesIcon sx={{ mr: 0.75, fontSize: 20 }} />
+              Story
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      )}
 
       {/* Media Preview Modal */}
       <Dialog

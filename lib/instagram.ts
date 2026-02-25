@@ -3,8 +3,12 @@
  * Handles Instagram account connection, scheduling, and publishing.
  */
 
-import type { InstagramAccount, InstagramScheduledPost } from "./types";
-export type { InstagramAccount, InstagramScheduledPost } from "./types";
+import type {
+  InstagramAccount,
+  InstagramMediaType,
+  InstagramScheduledPost,
+} from "./types";
+export type { InstagramAccount, InstagramMediaType, InstagramScheduledPost } from "./types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -185,6 +189,8 @@ export interface SchedulePostRequest {
   scheduled_date: string; // YYYY-MM-DD
   scheduled_time: string; // HH:MM
   campaign_id?: string;
+  media_type?: InstagramMediaType;
+  carousel_children?: string[]; // content item IDs for carousel
 }
 
 export interface ScheduleBatchRequest {
@@ -195,6 +201,8 @@ export interface ScheduleBatchRequest {
     scheduled_date: string;
     scheduled_time: string;
     campaign_id?: string;
+    media_type?: InstagramMediaType;
+    carousel_children?: string[];
   }>;
 }
 
@@ -227,6 +235,26 @@ export async function scheduleInstagramPost(
   }
 
   return response.json();
+}
+
+/**
+ * Build a carousel post entry for scheduleInstagramPostsBatch.
+ * content_item_id is the first/primary item; carousel_children are all item IDs in order.
+ */
+export function buildCarouselSchedulePost(
+  contentItemIds: string[],
+  scheduledDate: string,
+  scheduledTime: string,
+  campaignId?: string
+): ScheduleBatchRequest["posts"][0] {
+  return {
+    content_item_id: contentItemIds[0] ?? "",
+    scheduled_date: scheduledDate,
+    scheduled_time: scheduledTime,
+    campaign_id: campaignId,
+    media_type: "CAROUSEL",
+    carousel_children: contentItemIds,
+  };
 }
 
 /**

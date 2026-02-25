@@ -1,4 +1,5 @@
 "use client";
+import CarouselPreviewCard from "@/components/CarouselPreviewCard";
 import ContentCard from "@/components/ContentCard";
 import CampaignHeader from "@/components/CampaignHeader";
 import CampaignSelector from "@/components/CampaignSelector";
@@ -15,7 +16,11 @@ import {
   updatePrompt,
   type Campaign,
 } from "@/lib/api";
-import type { ContentItem, PromptResponse } from "@/lib/types";
+import type {
+  ContentItem,
+  PromptResponse,
+  PromptType,
+} from "@/lib/types";
 import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
@@ -52,6 +57,9 @@ function ReviewPageContent() {
     new Set()
   );
   const [creditBalance, setCreditBalance] = React.useState(0);
+  const [mediaTypeMap, setMediaTypeMap] = React.useState<
+    Record<string, "REELS" | "STORIES">
+  >({});
   const [toast, setToast] = React.useState<{
     msg: string;
     severity: "success" | "info" | "error";
@@ -335,6 +343,91 @@ function ReviewPageContent() {
     setSelectorOpen(false);
   };
 
+  // Build prompt_type lookup: asset_id -> prompt_type
+  const promptTypeMap = React.useMemo(
+    () =>
+      Object.fromEntries(
+        prompts.map((p) => [p.asset_id, p.prompt_type as PromptType])
+      ),
+    [prompts]
+  );
+
+  // Classify items: carousel vs regular (video/story_image)
+  const { carouselGroups, regularItems } = React.useMemo(() => {
+    const carouselItems = items.filter(
+      (i) => promptTypeMap[i.id] === "carousel_image"
+    );
+    const regular = items.filter(
+      (i) =>
+        promptTypeMap[i.id] === "video" || promptTypeMap[i.id] === "story_image"
+    );
+    // Group carousel images by post_number (from metadata)
+    const byPost = new Map<number, ContentItem[]>();
+    carouselItems.forEach((item) => {
+      const prompt = prompts.find((p) => p.asset_id === item.id);
+      const postNum =
+        (prompt?.metadata?.post_number as number) ?? 0;
+      const arr = byPost.get(postNum) ?? [];
+      arr.push(item);
+      byPost.set(postNum, arr);
+    });
+    // Sort each group by image_number for consistent order
+    const groups = Array.from(byPost.values()).map((group) => {
+      return group
+        .map((item) => {
+          const prompt = prompts.find((p) => p.asset_id === item.id);
+          const imageNum =
+            (prompt?.metadata?.image_number as number) ?? 0;
+          return { item, imageNum };
+        })
+        .sort((a, b) => a.imageNum - b.imageNum)
+        .map(({ item }) => item);
+    });
+    return { carouselGroups: groups, regularItems: regular };
+  }, [items, prompts, promptTypeMap]);
+
+  // Initialize default media types when prompts/items load (preserve user selections)
+  React.useEffect(() => {
+    const defaults: Record<string, "REELS" | "STORIES"> = {};
+    regularItems.forEach((item) => {
+      const pt = promptTypeMap[item.id];
+      if (pt === "video") defaults[item.id] = "REELS";
+      else if (pt === "story_image") defaults[item.id] = "STORIES";
+    });
+    setMediaTypeMap((prev) => {
+      const merged = { ...prev };
+      Object.entries(defaults).forEach(([k, v]) => {
+        if (merged[k] === undefined) merged[k] = v;
+      });
+      return merged;
+    });
+  }, [regularItems, promptTypeMap]);
+
+  const handleDeleteAllCarousel = async (ids: string[]) => {
+    if (!userId) return;
+    if (!window.confirm(`Delete all ${ids.length} carousel images?`)) return;
+    try {
+      const token = await getToken();
+      for (const id of ids) {
+        await deleteContentItem(id, token ?? undefined);
+      }
+      setItems((prev) => prev.filter((i) => !ids.includes(i.id)));
+      if (campaign) {
+        setCampaign({
+          ...campaign,
+          content_count: Math.max(0, campaign.content_count - ids.length),
+        });
+      }
+      setToast({ msg: "Carousel deleted successfully.", severity: "success" });
+    } catch (error) {
+      console.error("Failed to delete carousel:", error);
+      setToast({
+        msg: "Failed to delete carousel. Please try again.",
+        severity: "error",
+      });
+    }
+  };
+
   if (!isLoaded) {
     return (
       <Stack
@@ -505,9 +598,36 @@ function ReviewPageContent() {
             gap: 2,
           }}
         >
-          {items.map((item) => (
+          {carouselGroups.map((groupItems, idx) => (
+            <Box key={`carousel-${idx}-${groupItems[0]?.id}`} sx={{ minWidth: 0 }}>
+              <CarouselPreviewCard
+                items={groupItems}
+                onDeleteAll={handleDeleteAllCarousel}
+              />
+            </Box>
+          ))}
+          {regularItems.map((item) => (
             <Box key={item.id} sx={{ minWidth: 0 }}>
-              <ContentCard item={item} onDelete={handleDelete} />
+              <ContentCard
+                item={item}
+                onDelete={handleDelete}
+                mediaType={
+                  promptTypeMap[item.id] === "video" ||
+                  promptTypeMap[item.id] === "story_image"
+                    ? mediaTypeMap[item.id] ??
+                      (promptTypeMap[item.id] === "story_image"
+                        ? "STORIES"
+                        : "REELS")
+                    : undefined
+                }
+                onMediaTypeChange={
+                  promptTypeMap[item.id] === "video" ||
+                  promptTypeMap[item.id] === "story_image"
+                    ? (type) =>
+                        setMediaTypeMap((prev) => ({ ...prev, [item.id]: type }))
+                    : undefined
+                }
+              />
             </Box>
           ))}
         </Box>
