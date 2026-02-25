@@ -352,14 +352,17 @@ function ReviewPageContent() {
     [prompts]
   );
 
-  // Classify items: carousel vs regular (video/story_image)
+  // Classify items: carousel vs regular (video/story_image). Items without a
+  // matching prompt_type are shown as regular (fallback so content always displays).
   const { carouselGroups, regularItems } = React.useMemo(() => {
     const carouselItems = items.filter(
       (i) => promptTypeMap[i.id] === "carousel_image"
     );
     const regular = items.filter(
       (i) =>
-        promptTypeMap[i.id] === "video" || promptTypeMap[i.id] === "story_image"
+        promptTypeMap[i.id] === "video" ||
+        promptTypeMap[i.id] === "story_image" ||
+        promptTypeMap[i.id] === undefined
     );
     // Group carousel images by post_number (from metadata)
     const byPost = new Map<number, ContentItem[]>();
