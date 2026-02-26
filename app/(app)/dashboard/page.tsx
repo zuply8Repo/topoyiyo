@@ -3,6 +3,7 @@
 import React, { Suspense } from "react";
 import TimeSelectDialog from "@/components/TimeSelectDialog";
 import InstagramScheduleDialog from "@/components/InstagramScheduleDialog";
+import ContentPreviewPopover from "@/components/ContentPreviewPopover";
 import {
   getSchedule,
   removeSchedule,
@@ -16,12 +17,13 @@ import {
   type Campaign,
 } from "@/lib/api";
 import { getMonthGrid } from "@/lib/monthGrid";
-import type { ContentItem, ScheduleAssignment } from "@/lib/types";
+import type { ContentItem, ScheduleAssignment, InstagramMediaType } from "@/lib/types";
 import { SignedIn, useAuth } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import ClearIcon from "@mui/icons-material/Clear";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import InstagramIcon from "@mui/icons-material/Instagram";
+import CollectionsIcon from "@mui/icons-material/Collections";
 import InstagramStatusBadge from "@/components/InstagramStatusBadge";
 import { listScheduledPosts, type InstagramScheduledPost } from "@/lib/instagram";
 import {
@@ -84,14 +86,20 @@ function DashboardContent() {
   const [dropTarget, setDropTarget] = React.useState<{
     itemId: string;
     dateISO: string;
+    allItemIds?: string[];
   } | null>(null);
 
   const [dragging, setDragging] = React.useState<{
-    itemId: string;
+    itemIds: string[];
     source: "approved" | "scheduled";
   } | null>(null);
   const [hoverDateISO, setHoverDateISO] = React.useState<string | null>(null);
   const [instagramDialogOpen, setInstagramDialogOpen] = React.useState(false);
+  const [previewAnchor, setPreviewAnchor] = React.useState<{
+    el: HTMLElement;
+    items: ContentItem[];
+    mediaType: InstagramMediaType;
+  } | null>(null);
 
   // Load active campaign and its content
   const loadCampaignContent = React.useCallback(async () => {
@@ -219,6 +227,48 @@ function DashboardContent() {
     return m;
   }, [instagramPosts]);
 
+  // Carousel detection: caption "Carousel image - carousel_post_X_img_Y"
+  const { carouselGroups, regularItems } = React.useMemo(() => {
+    const isCarousel = (i: ContentItem) =>
+      i.assetType === "image" &&
+      typeof i.caption === "string" &&
+      i.caption.startsWith("Carousel image -");
+    const carouselItems = contentItems.filter(isCarousel);
+    const regular = contentItems.filter((i) => !carouselItems.includes(i));
+    const parsePostAndImage = (item: ContentItem): { post: number; img: number } => {
+      const m = (item.caption ?? "").match(/carousel_post_(\d+)_img_(\d+)/i);
+      return m ? { post: parseInt(m[1], 10), img: parseInt(m[2], 10) } : { post: 0, img: 0 };
+    };
+    const byPost = new Map<number, ContentItem[]>();
+    carouselItems.forEach((item) => {
+      const { post } = parsePostAndImage(item);
+      const arr = byPost.get(post) ?? [];
+      arr.push(item);
+      byPost.set(post, arr);
+    });
+    const groups = Array.from(byPost.values()).map((group) =>
+      group
+        .map((item) => ({ item, img: parsePostAndImage(item).img }))
+        .sort((a, b) => a.img - b.img)
+        .map(({ item }) => item)
+    );
+    return { carouselGroups: groups, regularItems: regular };
+  }, [contentItems]);
+
+  const getPreviewContext = React.useCallback(
+    (itemId: string): { items: ContentItem[]; mediaType: InstagramMediaType } => {
+      const item = itemsById.get(itemId);
+      if (!item) return { items: [], mediaType: "REELS" };
+      const group = carouselGroups.find((g) => g.some((i) => i.id === itemId));
+      if (group) return { items: group, mediaType: "CAROUSEL" };
+      return {
+        items: [item],
+        mediaType: (item.instagramMediaType ?? (item.assetType === "video" ? "REELS" : "STORIES")) as InstagramMediaType,
+      };
+    },
+    [itemsById, carouselGroups]
+  );
+
   const monthCells = React.useMemo(
     () => getMonthGrid(year, month),
     [year, month]
@@ -245,12 +295,11 @@ function DashboardContent() {
   }, []);
 
   const onPointerDownDrag =
-    (itemId: string, source: "approved" | "scheduled") =>
+    (itemIds: string[], source: "approved" | "scheduled") =>
     (e: React.PointerEvent) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      // Prevent page scrolling while dragging on touch.
       e.preventDefault();
-      setDragging({ itemId, source });
+      setDragging({ itemIds, source });
       setHoverDateISO(null);
       (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     };
@@ -267,31 +316,31 @@ function DashboardContent() {
     const ctx = getDropContextFromPoint(e.clientX, e.clientY);
     const dropDateISO = ctx?.dateISO ?? null;
     const targetItemId = ctx?.targetItemId ?? null;
-
-    const draggingItemId = dragging.itemId;
-    const fromAssignment = assignmentByItemId.get(draggingItemId);
+    const draggingItemIds = dragging.itemIds;
+    const primaryId = draggingItemIds[0];
+    const fromAssignment = primaryId ? assignmentByItemId.get(primaryId) : undefined;
     const fromDateISO = fromAssignment?.dateISO ?? null;
 
     // Reorder within the same day (no time dialog).
-    if (dropDateISO && fromDateISO && dropDateISO === fromDateISO) {
+    if (dropDateISO && fromDateISO && dropDateISO === fromDateISO && draggingItemIds.length === 1) {
       const currentIds = (assignmentsByDate.get(dropDateISO) ?? []).map(
         (a) => a.itemId
       );
-      const nextIds = currentIds.filter((id) => id !== draggingItemId);
+      const nextIds = currentIds.filter((id) => !draggingItemIds.includes(id));
       const idx = targetItemId ? nextIds.indexOf(targetItemId) : -1;
-      if (idx >= 0) nextIds.splice(idx, 0, draggingItemId);
-      else nextIds.push(draggingItemId);
+      if (idx >= 0) nextIds.splice(idx, 0, ...draggingItemIds);
+      else nextIds.push(...draggingItemIds);
       setScheduleOrderForDate(dropDateISO, nextIds, userId);
       refresh();
-      setToast("Reordered (stub).");
+      setToast("Reordered.");
       setDragging(null);
       setHoverDateISO(null);
       return;
     }
 
-    // Schedule / move to another day (time selection).
+    // Schedule / move to another day (time selection). Use first id for dropTarget.
     if (dropDateISO) {
-      setDropTarget({ itemId: draggingItemId, dateISO: dropDateISO });
+      setDropTarget({ itemId: primaryId ?? "", dateISO: dropDateISO, allItemIds: draggingItemIds });
     }
 
     setDragging(null);
@@ -429,163 +478,307 @@ function DashboardContent() {
                 No content yet — generated content will appear here.
               </Typography>
             ) : (
-              contentItems.map((it) => {
-                const assignment = assignmentByItemId.get(it.id);
-                const mediaUrl = it.assetType === "video" ? it.videoUrl : it.imageUrl;
-                const statusColor = it.status === "approved" ? "success" : it.status === "rejected" ? "error" : "default";
-                
-                const igPost = instagramPostByContentId.get(it.id);
-                
-                // Get campaign name if available
-                const itemCampaign = it.campaignId ? campaignsById.get(it.campaignId) : null;
-                const campaignName = itemCampaign?.campaign_name || "Unknown Campaign";
-                
-                // Determine campaign badge color
-                const isActiveCampaign = campaign && it.campaignId === campaign.id;
-                const campaignBadgeColor = isActiveCampaign ? "#FF9800" : "#9C27B0"; // Orange for active, Purple for others
+              <>
+                {/* Carousel groups - one card per group */}
+                {carouselGroups.map((group) => {
+                  const ids = group.map((i) => i.id);
+                  const first = group[0];
+                  const assignment = ids.some((id) => assignmentByItemId.has(id))
+                    ? assignmentByItemId.get(ids[0])
+                    : undefined;
+                  const itemCampaign = first?.campaignId ? campaignsById.get(first.campaignId) : null;
+                  const campaignName = itemCampaign?.campaign_name || "Unknown Campaign";
+                  const isActiveCampaign = campaign && first?.campaignId === campaign.id;
+                  const campaignBadgeColor = isActiveCampaign ? "#FF9800" : "#9C27B0";
 
-                return (
-                  <Paper
-                    key={it.id}
-                    variant="outlined"
-                    onPointerDown={onPointerDownDrag(it.id, "approved")}
-                    onPointerMove={onPointerMoveDrag}
-                    onPointerUp={onPointerUpDrag}
-                    sx={{
-                      borderRadius: 3,
-                      borderColor: "divider",
-                      p: 1.25,
-                      cursor: "grab",
-                      touchAction: "none",
-                      opacity: dragging?.itemId === it.id ? 0.65 : 1,
-                      "&:active": { cursor: "grabbing" },
-                    }}
-                  >
-                    <Stack spacing={0.75}>
-                      <Stack direction="row" spacing={1.25} alignItems="center">
-                        <Box
-                          sx={{
-                            position: "relative",
-                            width: 44,
-                            height: 44,
-                            borderRadius: 2,
-                            overflow: "hidden",
-                            flex: "0 0 auto",
-                          }}
-                        >
-                          {it.assetType === "video" && it.videoUrl ? (
-                            <>
-                              <video
-                                src={it.videoUrl}
-                                style={{
+                  return (
+                    <Paper
+                      key={`carousel-${ids.join("-")}`}
+                      variant="outlined"
+                      onPointerDown={onPointerDownDrag(ids, "approved")}
+                      onPointerMove={onPointerMoveDrag}
+                      onPointerUp={onPointerUpDrag}
+                      onClick={(e) => {
+                        if (dragging) return;
+                        setPreviewAnchor({
+                          el: e.currentTarget as HTMLElement,
+                          items: group,
+                          mediaType: "CAROUSEL",
+                        });
+                      }}
+                      sx={{
+                        borderRadius: 3,
+                        borderColor: "divider",
+                        p: 1.25,
+                        cursor: "grab",
+                        touchAction: "none",
+                        opacity: dragging?.itemIds.some((id) => ids.includes(id)) ? 0.65 : 1,
+                        "&:active": { cursor: "grabbing" },
+                      }}
+                    >
+                      <Stack spacing={0.75}>
+                        <Stack direction="row" spacing={1.25} alignItems="center">
+                          <Box
+                            sx={{
+                              display: "flex",
+                              width: 44 * 3 + 4,
+                              gap: 0.5,
+                              flex: "0 0 auto",
+                              borderRadius: 2,
+                              overflow: "hidden",
+                            }}
+                          >
+                            {group.slice(0, 3).map((item) => (
+                              <Box
+                                key={item.id}
+                                sx={{
+                                  width: 44,
+                                  height: 44,
+                                  borderRadius: 1,
+                                  overflow: "hidden",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {item.imageUrl && (
+                                  <Box
+                                    component="img"
+                                    src={item.imageUrl}
+                                    alt=""
+                                    sx={{
+                                      width: "100%",
+                                      height: "100%",
+                                      objectFit: "cover",
+                                    }}
+                                  />
+                                )}
+                              </Box>
+                            ))}
+                          </Box>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.25 }}>
+                              <Chip
+                                icon={<CollectionsIcon sx={{ fontSize: 14 }} />}
+                                label="Carousel"
+                                size="small"
+                                sx={{ height: 18, fontSize: "0.65rem" }}
+                              />
+                              <Chip
+                                size="small"
+                                label={first?.status ?? "approved"}
+                                color="success"
+                                sx={{ height: 18, fontSize: "0.65rem", textTransform: "capitalize" }}
+                              />
+                            </Stack>
+                            <Box sx={{ mb: 0.25 }}>
+                              <Chip
+                                label={campaignName}
+                                size="small"
+                                sx={{
+                                  bgcolor: campaignBadgeColor,
+                                  color: "white",
+                                  fontWeight: 600,
+                                  height: 20,
+                                  fontSize: "0.65rem",
+                                  maxWidth: "100%",
+                                  "& .MuiChip-label": {
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    px: 0.75,
+                                  },
+                                }}
+                              />
+                            </Box>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{
+                                display: "-webkit-box",
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: "vertical",
+                                overflow: "hidden",
+                                wordBreak: "break-word",
+                              }}
+                            >
+                              {(first?.caption ?? "").replace(/^Carousel image -\s*carousel_post_\d+_img_\d+\s*/i, "").trim() || "Carousel post"}
+                            </Typography>
+                          </Box>
+                          {!assignment && (
+                            <Chip
+                              size="small"
+                              label="Unscheduled"
+                              variant="outlined"
+                            />
+                          )}
+                        </Stack>
+                      </Stack>
+                    </Paper>
+                  );
+                })}
+                {/* Regular items */}
+                {regularItems.map((it) => {
+                  const assignment = assignmentByItemId.get(it.id);
+                  const mediaUrl = it.assetType === "video" ? it.videoUrl : it.imageUrl;
+                  const statusColor = it.status === "approved" ? "success" : it.status === "rejected" ? "error" : "default";
+                  const igPost = instagramPostByContentId.get(it.id);
+                  const itemCampaign = it.campaignId ? campaignsById.get(it.campaignId) : null;
+                  const campaignName = itemCampaign?.campaign_name || "Unknown Campaign";
+                  const isActiveCampaign = campaign && it.campaignId === campaign.id;
+                  const campaignBadgeColor = isActiveCampaign ? "#FF9800" : "#9C27B0";
+                  const inferredMediaType: InstagramMediaType =
+                    it.assetType === "video" ? "REELS" : "STORIES";
+
+                  return (
+                    <Paper
+                      key={it.id}
+                      variant="outlined"
+                      onPointerDown={onPointerDownDrag([it.id], "approved")}
+                      onPointerMove={onPointerMoveDrag}
+                      onPointerUp={onPointerUpDrag}
+                      onClick={(e) => {
+                        if (dragging) return;
+                        setPreviewAnchor({
+                          el: e.currentTarget as HTMLElement,
+                          items: [it],
+                          mediaType: it.instagramMediaType ?? inferredMediaType,
+                        });
+                      }}
+                      sx={{
+                        borderRadius: 3,
+                        borderColor: "divider",
+                        p: 1.25,
+                        cursor: "grab",
+                        touchAction: "none",
+                        opacity: dragging?.itemIds.includes(it.id) ? 0.65 : 1,
+                        "&:active": { cursor: "grabbing" },
+                      }}
+                    >
+                      <Stack spacing={0.75}>
+                        <Stack direction="row" spacing={1.25} alignItems="center">
+                          <Box
+                            sx={{
+                              position: "relative",
+                              width: 44,
+                              height: 44,
+                              borderRadius: 2,
+                              overflow: "hidden",
+                              flex: "0 0 auto",
+                            }}
+                          >
+                            {it.assetType === "video" && it.videoUrl ? (
+                              <>
+                                <video
+                                  src={it.videoUrl}
+                                  style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    objectFit: "cover",
+                                  }}
+                                />
+                                <Box
+                                  sx={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    bgcolor: "rgba(0, 0, 0, 0.3)",
+                                  }}
+                                >
+                                  <PlayArrowIcon
+                                    sx={{ color: "white", fontSize: 20 }}
+                                  />
+                                </Box>
+                              </>
+                            ) : (
+                              <Box
+                                component="img"
+                                src={mediaUrl}
+                                alt="Content"
+                                sx={{
                                   width: "100%",
                                   height: "100%",
                                   objectFit: "cover",
                                 }}
                               />
-                              <Box
-                                sx={{
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  bgcolor: "rgba(0, 0, 0, 0.3)",
-                                }}
+                            )}
+                          </Box>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.25 }}>
+                              <Typography
+                                variant="body2"
+                                sx={{ fontWeight: 800 }}
+                                noWrap
                               >
-                                <PlayArrowIcon
-                                  sx={{ color: "white", fontSize: 20 }}
-                                />
-                              </Box>
-                            </>
-                          ) : (
-                            <Box
-                              component="img"
-                              src={mediaUrl}
-                              alt="Content"
+                                {it.assetType === "video" ? "Video" : "Image"}
+                              </Typography>
+                              <Chip
+                                size="small"
+                                label={it.status}
+                                color={statusColor}
+                                sx={{ height: 18, fontSize: "0.65rem", textTransform: "capitalize" }}
+                              />
+                            </Stack>
+                            <Box sx={{ mb: 0.25 }}>
+                              <Chip
+                                label={campaignName}
+                                size="small"
+                                sx={{
+                                  bgcolor: campaignBadgeColor,
+                                  color: "white",
+                                  fontWeight: 600,
+                                  height: 20,
+                                  fontSize: "0.65rem",
+                                  maxWidth: "100%",
+                                  "& .MuiChip-label": {
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    px: 0.75,
+                                  },
+                                }}
+                              />
+                            </Box>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
                               sx={{
-                                width: "100%",
-                                height: "100%",
-                                objectFit: "cover",
+                                display: "-webkit-box",
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: "vertical",
+                                overflow: "hidden",
+                                wordBreak: "break-word",
                               }}
+                            >
+                              {it.caption}
+                            </Typography>
+                          </Box>
+                          {!assignment && (
+                            <Chip
+                              size="small"
+                              label="Unscheduled"
+                              variant="outlined"
                             />
                           )}
-                        </Box>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.25 }}>
-                            <Typography
-                              variant="body2"
-                              sx={{ fontWeight: 800 }}
-                              noWrap
-                            >
-                              {it.assetType === "video" ? "Video" : "Image"}
-                            </Typography>
-                            <Chip
+                        </Stack>
+                        {igPost && (
+                          <Box sx={{ pl: 0.5 }}>
+                            <InstagramStatusBadge
+                              status={igPost.publish_status}
+                              permalink={igPost.instagram_permalink}
+                              errorMessage={igPost.error_message}
                               size="small"
-                              label={it.status}
-                              color={statusColor}
-                              sx={{ height: 18, fontSize: "0.65rem", textTransform: "capitalize" }}
-                            />
-                          </Stack>
-                          <Box sx={{ mb: 0.25 }}>
-                            <Chip
-                              label={campaignName}
-                              size="small"
-                              sx={{
-                                bgcolor: campaignBadgeColor,
-                                color: "white",
-                                fontWeight: 600,
-                                height: 20,
-                                fontSize: "0.65rem",
-                                maxWidth: "100%",
-                                "& .MuiChip-label": {
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                  px: 0.75,
-                                },
-                              }}
                             />
                           </Box>
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{
-                              display: "-webkit-box",
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: "vertical",
-                              overflow: "hidden",
-                              wordBreak: "break-word",
-                            }}
-                          >
-                            {it.caption}
-                          </Typography>
-                        </Box>
-                        {!assignment && (
-                          <Chip
-                            size="small"
-                            label="Unscheduled"
-                            variant="outlined"
-                          />
                         )}
                       </Stack>
-                      {igPost && (
-                        <Box sx={{ pl: 0.5 }}>
-                          <InstagramStatusBadge
-                            status={igPost.publish_status}
-                            permalink={igPost.instagram_permalink}
-                            errorMessage={igPost.error_message}
-                            size="small"
-                          />
-                        </Box>
-                      )}
-                    </Stack>
-                  </Paper>
-                );
-              })
+                    </Paper>
+                  );
+                })}
+              </>
             )}
           </Stack>
         </Paper>
@@ -709,11 +902,21 @@ function DashboardContent() {
                             data-cb-scheduled
                             data-itemid={a.itemId}
                             onPointerDown={onPointerDownDrag(
-                              a.itemId,
+                              [a.itemId],
                               "scheduled"
                             )}
                             onPointerMove={onPointerMoveDrag}
                             onPointerUp={onPointerUpDrag}
+                            onClick={(e) => {
+                              if (dragging) return;
+                              const ctx = getPreviewContext(a.itemId);
+                              if (ctx.items.length === 0) return;
+                              setPreviewAnchor({
+                                el: e.currentTarget as HTMLElement,
+                                items: ctx.items,
+                                mediaType: ctx.mediaType,
+                              });
+                            }}
                             sx={{
                               display: "flex",
                               alignItems: "center",
@@ -727,7 +930,7 @@ function DashboardContent() {
                               bgcolor: "background.paper",
                               cursor: "grab",
                               touchAction: "none",
-                              opacity: dragging?.itemId === a.itemId ? 0.65 : 1,
+                              opacity: dragging?.itemIds?.includes(a.itemId) ? 0.65 : 1,
                               "&:active": { cursor: "grabbing" },
                             }}
                           >
@@ -834,11 +1037,20 @@ function DashboardContent() {
         onCancel={() => setDropTarget(null)}
         onConfirm={(time) => {
           if (!dropTarget) return;
-          upsertSchedule(dropTarget.itemId, dropTarget.dateISO, time, userId);
+          const ids = dropTarget.allItemIds ?? [dropTarget.itemId];
+          ids.forEach((id) => upsertSchedule(id, dropTarget.dateISO, time, userId));
           setDropTarget(null);
           refresh();
-          setToast("Content scheduled to calendar.");
+          setToast(ids.length > 1 ? "Carousel scheduled to calendar." : "Content scheduled to calendar.");
         }}
+      />
+
+      <ContentPreviewPopover
+        open={Boolean(previewAnchor)}
+        anchorEl={previewAnchor?.el ?? null}
+        onClose={() => setPreviewAnchor(null)}
+        items={previewAnchor?.items ?? []}
+        mediaType={previewAnchor?.mediaType ?? "REELS"}
       />
 
       <InstagramScheduleDialog

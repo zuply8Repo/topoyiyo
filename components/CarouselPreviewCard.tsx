@@ -11,24 +11,31 @@ import {
   DialogContent,
   IconButton,
   Stack,
+  TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/Download";
+import EditIcon from "@mui/icons-material/Edit";
 import CollectionsIcon from "@mui/icons-material/Collections";
 import React from "react";
 
 export type CarouselPreviewCardProps = {
   items: ContentItem[];
   onDeleteAll: (ids: string[]) => void;
+  onCaptionChange?: (itemIds: string[], newCaption: string) => Promise<void>;
 };
 
 export default function CarouselPreviewCard({
   items,
   onDeleteAll,
+  onCaptionChange,
 }: CarouselPreviewCardProps) {
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [editingCaption, setEditingCaption] = React.useState(false);
+  const [captionDraft, setCaptionDraft] = React.useState("");
+  const [savingCaption, setSavingCaption] = React.useState(false);
 
   const caption = items[0]?.caption ?? "";
   const ids = items.map((i) => i.id);
@@ -51,6 +58,31 @@ export default function CarouselPreviewCard({
   const handleDeleteAll = () => {
     if (window.confirm(`Delete all ${items.length} carousel images?`)) {
       onDeleteAll(ids);
+    }
+  };
+
+  const startEditCaption = () => {
+    setCaptionDraft(caption);
+    setEditingCaption(true);
+  };
+
+  const cancelEditCaption = () => {
+    setEditingCaption(false);
+    setCaptionDraft("");
+  };
+
+  const saveCaption = async () => {
+    if (!onCaptionChange || captionDraft.trim() === caption) {
+      setEditingCaption(false);
+      return;
+    }
+    try {
+      setSavingCaption(true);
+      await onCaptionChange(ids, captionDraft.trim());
+      setEditingCaption(false);
+      setCaptionDraft("");
+    } finally {
+      setSavingCaption(false);
     }
   };
 
@@ -175,24 +207,66 @@ export default function CarouselPreviewCard({
         </Box>
       </Box>
 
-      {/* Caption */}
-      {caption && (
-        <Typography
-          variant="body2"
-          color="text.secondary"
-          sx={{
-            px: 2,
-            py: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-          }}
-        >
-          {caption}
-        </Typography>
-      )}
+      {/* Caption - editable when onCaptionChange is provided */}
+      <Box sx={{ px: 2, py: 1, display: "flex", alignItems: "flex-start", gap: 0.5 }}>
+        {editingCaption ? (
+          <Stack direction="row" spacing={1} sx={{ flex: 1, minWidth: 0 }}>
+            <TextField
+              size="small"
+              fullWidth
+              multiline
+              maxRows={3}
+              value={captionDraft}
+              onChange={(e) => setCaptionDraft(e.target.value)}
+              placeholder="Carousel caption..."
+              sx={{ "& .MuiInputBase-root": { fontSize: "0.875rem" } }}
+              autoFocus
+            />
+            <Button
+              size="small"
+              variant="contained"
+              onClick={saveCaption}
+              disabled={savingCaption || captionDraft.trim() === caption}
+              sx={{ textTransform: "none", fontWeight: 700, flexShrink: 0 }}
+            >
+              {savingCaption ? "Saving…" : "Save"}
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={cancelEditCaption}
+              disabled={savingCaption}
+              sx={{ textTransform: "none", flexShrink: 0 }}
+            >
+              Cancel
+            </Button>
+          </Stack>
+        ) : (
+          <>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{
+                flex: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+              }}
+            >
+              {caption || "No caption"}
+            </Typography>
+            {onCaptionChange && (
+              <Tooltip title="Edit caption">
+                <IconButton size="small" onClick={startEditCaption} sx={{ flexShrink: 0 }}>
+                  <EditIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+          </>
+        )}
+      </Box>
 
       {/* Actions */}
       <Box

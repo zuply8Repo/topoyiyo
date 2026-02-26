@@ -6,11 +6,8 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import React from "react";
@@ -23,7 +20,11 @@ export type TimeSelectDialogProps = {
   onConfirm: (time: string) => void;
 };
 
-const TIMES = ["09:00", "12:00", "15:00", "18:00"];
+function toHHMM(date: Date): string {
+  const h = date.getHours().toString().padStart(2, "0");
+  const m = date.getMinutes().toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
 
 export default function TimeSelectDialog({
   open,
@@ -32,11 +33,21 @@ export default function TimeSelectDialog({
   onCancel,
   onConfirm,
 }: TimeSelectDialogProps) {
-  const [time, setTime] = React.useState(TIMES[1]);
+  const now = new Date();
+  const defaultTime = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+  const [time, setTime] = React.useState(defaultTime);
 
   React.useEffect(() => {
-    setTime(TIMES[1]);
+    const now = new Date();
+    setTime(toHHMM(now));
   }, [open]);
+
+  const handleConfirm = () => {
+    const [h, m] = time.split(":").map(Number);
+    const hour = Math.min(23, Math.max(0, isNaN(h) ? 12 : h));
+    const minute = Math.min(59, Math.max(0, isNaN(m) ? 0 : m));
+    onConfirm(`${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`);
+  };
 
   return (
     <Dialog
@@ -52,21 +63,18 @@ export default function TimeSelectDialog({
           <Typography variant="body2" color="text.secondary">
             Scheduling item <b>{itemId ?? ""}</b> on <b>{dateISO ?? ""}</b>.
           </Typography>
-          <FormControl fullWidth>
-            <InputLabel id="time-select-label">Time</InputLabel>
-            <Select
-              labelId="time-select-label"
-              label="Time"
-              value={time}
-              onChange={(e) => setTime(String(e.target.value))}
-            >
-              {TIMES.map((t) => (
-                <MenuItem key={t} value={t}>
-                  {t}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <TextField
+            label="Time"
+            type="time"
+            value={time}
+            onChange={(e) => setTime(e.target.value || "12:00")}
+            slotProps={{
+              htmlInput: {
+                step: 300,
+              },
+            }}
+            fullWidth
+          />
         </Stack>
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
@@ -74,7 +82,7 @@ export default function TimeSelectDialog({
           Cancel
         </Button>
         <Button
-          onClick={() => onConfirm(time)}
+          onClick={handleConfirm}
           variant="contained"
           sx={{ textTransform: "none", borderRadius: 999 }}
         >

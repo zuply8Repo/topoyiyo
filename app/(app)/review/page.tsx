@@ -8,6 +8,7 @@ import {
   ApiError,
   fetchCampaignContent,
   deleteContentItem,
+  updateContentCaption,
   getActiveCampaign,
   listUserCampaigns,
   getCampaignPrompts,
@@ -352,40 +353,46 @@ function ReviewPageContent() {
     [prompts]
   );
 
-  // Classify items: carousel vs regular (video/story_image). Items without a
-  // matching prompt_type are shown as regular (fallback so content always displays).
+  // Classify items: carousel vs regular (video/story_image).
+  // Carousel detection: promptTypeMap (asset_id match) OR caption "Carousel image -"
+  // (fallback: content_items use random IDs, so asset_id rarely matches)
   const { carouselGroups, regularItems } = React.useMemo(() => {
+    const isCarouselByPrompt = (i: ContentItem) =>
+      promptTypeMap[i.id] === "carousel_image";
+    const isCarouselByCaption = (i: ContentItem) =>
+      i.assetType === "image" &&
+      typeof i.caption === "string" &&
+      i.caption.startsWith("Carousel image -");
     const carouselItems = items.filter(
-      (i) => promptTypeMap[i.id] === "carousel_image"
+      (i) => isCarouselByPrompt(i) || isCarouselByCaption(i)
     );
-    const regular = items.filter(
-      (i) =>
-        promptTypeMap[i.id] === "video" ||
-        promptTypeMap[i.id] === "story_image" ||
-        promptTypeMap[i.id] === undefined
-    );
-    // Group carousel images by post_number (from metadata)
+    const regular = items.filter((i) => !carouselItems.includes(i));
+    // Group carousel images by post_number (from prompt metadata or parsed from caption/asset_id)
+    const parsePostAndImage = (item: ContentItem): { post: number; img: number } => {
+      const prompt = prompts.find((p) => p.asset_id === item.id);
+      if (prompt?.metadata) {
+        return {
+          post: (prompt.metadata.post_number as number) ?? 0,
+          img: (prompt.metadata.image_number as number) ?? 0,
+        };
+      }
+      const assetId = item.caption?.replace(/^Carousel image -\s*/, "") ?? "";
+      const m = assetId.match(/carousel_post_(\d+)_img_(\d+)/i);
+      return m ? { post: parseInt(m[1], 10), img: parseInt(m[2], 10) } : { post: 0, img: 0 };
+    };
     const byPost = new Map<number, ContentItem[]>();
     carouselItems.forEach((item) => {
-      const prompt = prompts.find((p) => p.asset_id === item.id);
-      const postNum =
-        (prompt?.metadata?.post_number as number) ?? 0;
-      const arr = byPost.get(postNum) ?? [];
+      const { post } = parsePostAndImage(item);
+      const arr = byPost.get(post) ?? [];
       arr.push(item);
-      byPost.set(postNum, arr);
+      byPost.set(post, arr);
     });
-    // Sort each group by image_number for consistent order
-    const groups = Array.from(byPost.values()).map((group) => {
-      return group
-        .map((item) => {
-          const prompt = prompts.find((p) => p.asset_id === item.id);
-          const imageNum =
-            (prompt?.metadata?.image_number as number) ?? 0;
-          return { item, imageNum };
-        })
-        .sort((a, b) => a.imageNum - b.imageNum)
-        .map(({ item }) => item);
-    });
+    const groups = Array.from(byPost.values()).map((group) =>
+      group
+        .map((item) => ({ item, img: parsePostAndImage(item).img }))
+        .sort((a, b) => a.img - b.img)
+        .map(({ item }) => item)
+    );
     return { carouselGroups: groups, regularItems: regular };
   }, [items, prompts, promptTypeMap]);
 
@@ -393,9 +400,10 @@ function ReviewPageContent() {
   React.useEffect(() => {
     const defaults: Record<string, "REELS" | "STORIES"> = {};
     regularItems.forEach((item) => {
+      if (item.assetType !== "video" && item.assetType !== "image") return;
       const pt = promptTypeMap[item.id];
-      if (pt === "video") defaults[item.id] = "REELS";
-      else if (pt === "story_image") defaults[item.id] = "STORIES";
+      defaults[item.id] =
+        pt === "story_image" ? "STORIES" : "REELS";
     });
     setMediaTypeMap((prev) => {
       const merged = { ...prev };
@@ -428,6 +436,32 @@ function ReviewPageContent() {
         msg: "Failed to delete carousel. Please try again.",
         severity: "error",
       });
+    }
+  };
+
+  const handleCarouselCaptionChange = async (
+    itemIds: string[],
+    newCaption: string
+  ) => {
+    if (!userId) return;
+    try {
+      const token = await getToken();
+      for (const id of itemIds) {
+        await updateContentCaption(id, newCaption, token ?? undefined);
+      }
+      setItems((prev) =>
+        prev.map((i) =>
+          itemIds.includes(i.id) ? { ...i, caption: newCaption } : i
+        )
+      );
+      setToast({ msg: "Caption updated.", severity: "success" });
+    } catch (error) {
+      console.error("Failed to update caption:", error);
+      setToast({
+        msg: "Failed to update caption. Please try again.",
+        severity: "error",
+      });
+      throw error;
     }
   };
 
@@ -606,33 +640,39 @@ function ReviewPageContent() {
               <CarouselPreviewCard
                 items={groupItems}
                 onDeleteAll={handleDeleteAllCarousel}
+                onCaptionChange={handleCarouselCaptionChange}
               />
             </Box>
           ))}
-          {regularItems.map((item) => (
-            <Box key={item.id} sx={{ minWidth: 0 }}>
-              <ContentCard
-                item={item}
-                onDelete={handleDelete}
-                mediaType={
-                  promptTypeMap[item.id] === "video" ||
-                  promptTypeMap[item.id] === "story_image"
-                    ? mediaTypeMap[item.id] ??
-                      (promptTypeMap[item.id] === "story_image"
-                        ? "STORIES"
-                        : "REELS")
-                    : undefined
-                }
-                onMediaTypeChange={
-                  promptTypeMap[item.id] === "video" ||
-                  promptTypeMap[item.id] === "story_image"
-                    ? (type) =>
-                        setMediaTypeMap((prev) => ({ ...prev, [item.id]: type }))
-                    : undefined
-                }
-              />
-            </Box>
-          ))}
+          {regularItems.map((item) => {
+            // Show Reel/Story toggle for all video and image content (9:16-capable)
+            const showMediaTypeToggle =
+              item.assetType === "video" || item.assetType === "image";
+            const defaultType =
+              promptTypeMap[item.id] === "story_image" ? "STORIES" : "REELS";
+            return (
+              <Box key={item.id} sx={{ minWidth: 0 }}>
+                <ContentCard
+                  item={item}
+                  onDelete={handleDelete}
+                  mediaType={
+                    showMediaTypeToggle
+                      ? mediaTypeMap[item.id] ?? defaultType
+                      : undefined
+                  }
+                  onMediaTypeChange={
+                    showMediaTypeToggle
+                      ? (type) =>
+                          setMediaTypeMap((prev) => ({
+                            ...prev,
+                            [item.id]: type,
+                          }))
+                      : undefined
+                  }
+                />
+              </Box>
+            );
+          })}
         </Box>
       ) : null}
 

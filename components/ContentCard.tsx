@@ -1,6 +1,7 @@
 "use client";
 
 import type { ContentItem } from "@/lib/types";
+import Image from "next/image";
 import {
   Box,
   Button,
@@ -9,16 +10,16 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
+  FormControlLabel,
   IconButton,
-  ToggleButton,
-  ToggleButtonGroup,
+  Radio,
+  RadioGroup,
   Tooltip,
 } from "@mui/material";
-import AutoStoriesIcon from "@mui/icons-material/AutoStories";
+import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DownloadIcon from "@mui/icons-material/Download";
 import PlayCircleFilledIcon from "@mui/icons-material/PlayCircleFilled";
-import SmartDisplayIcon from "@mui/icons-material/SmartDisplay";
 import React from "react";
 
 export type ContentCardProps = {
@@ -191,31 +192,43 @@ export default function ContentCard({
         )}
       </Box>
 
-      {/* Reel / Story toggle - shown when mediaType + onMediaTypeChange are provided */}
+      {/* Reel / Story radio buttons - horizontal: Reel left, Story right */}
       {mediaType != null && onMediaTypeChange && (
         <Box sx={{ px: 2, py: 1.5, borderTop: 1, borderColor: "divider" }}>
-          <ToggleButtonGroup
+          <RadioGroup
+            row
             value={mediaType}
-            exclusive
-            onChange={(_, value) => value != null && onMediaTypeChange(value)}
-            fullWidth
-            size="small"
-            sx={{
-              "& .MuiToggleButton-root": {
-                textTransform: "none",
-                fontWeight: 700,
-              },
-            }}
+            onChange={(e) => onMediaTypeChange(e.target.value as "REELS" | "STORIES")}
+            sx={{ gap: 2, justifyContent: "flex-start" }}
           >
-            <ToggleButton value="REELS" aria-label="Post as Reel">
-              <SmartDisplayIcon sx={{ mr: 0.75, fontSize: 20 }} />
-              Reel
-            </ToggleButton>
-            <ToggleButton value="STORIES" aria-label="Post as Story">
-              <AutoStoriesIcon sx={{ mr: 0.75, fontSize: 20 }} />
-              Story
-            </ToggleButton>
-          </ToggleButtonGroup>
+            <FormControlLabel
+              value="REELS"
+              control={<Radio size="small" />}
+              label={
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Image
+                    src="/icons/reels-logo.png"
+                    alt="Reels"
+                    width={20}
+                    height={20}
+                  />
+                  <span style={{ fontWeight: 600 }}>Reel</span>
+                </Box>
+              }
+              sx={{ m: 0 }}
+            />
+            <FormControlLabel
+              value="STORIES"
+              control={<Radio size="small" />}
+              label={
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <AddIcon sx={{ fontSize: 20 }} />
+                  <span style={{ fontWeight: 600 }}>Story</span>
+                </Box>
+              }
+              sx={{ m: 0 }}
+            />
+          </RadioGroup>
         </Box>
       )}
 
@@ -262,7 +275,43 @@ export default function ContentCard({
           ) : null}
         </DialogContent>
         {hasMedia && (
-          <DialogActions sx={{ px: 2, py: 1.5 }}>
+          <DialogActions sx={{ px: 2, py: 1.5, flexWrap: "wrap", gap: 2, alignItems: "center" }}>
+            {mediaType != null && onMediaTypeChange && (
+              <RadioGroup
+                row
+                value={mediaType}
+                onChange={(e) => onMediaTypeChange(e.target.value as "REELS" | "STORIES")}
+                sx={{ gap: 2, mr: 1 }}
+              >
+                <FormControlLabel
+                  value="REELS"
+                  control={<Radio size="small" />}
+                  label={
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <Image
+                        src="/icons/reels-logo.png"
+                        alt="Reels"
+                        width={18}
+                        height={18}
+                      />
+                      <span style={{ fontWeight: 600 }}>Reel</span>
+                    </Box>
+                  }
+                  sx={{ m: 0 }}
+                />
+                <FormControlLabel
+                  value="STORIES"
+                  control={<Radio size="small" />}
+                  label={
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <AddIcon sx={{ fontSize: 18 }} />
+                      <span style={{ fontWeight: 600 }}>Story</span>
+                    </Box>
+                  }
+                  sx={{ m: 0 }}
+                />
+              </RadioGroup>
+            )}
             <Button
               startIcon={<DownloadIcon />}
               onClick={handleDownload}
