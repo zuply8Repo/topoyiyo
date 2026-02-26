@@ -44,7 +44,17 @@ export interface InstagramScheduleDialogProps {
   onSuccess?: () => void;
 }
 
-type ProcessingState = "idle" | "scheduling" | "publishing" | "complete" | "error";
+type ProcessingState = "idle" | "scheduling" | "publishing" | "complete" | "scheduled" | "error";
+
+/**
+ * Build a local Date from a YYYY-MM-DD string and HH:MM time string.
+ * Avoids the UTC-midnight pitfall of `new Date("YYYY-MM-DD")`.
+ */
+function toLocalDateTime(dateISO: string, timeStr: string): Date {
+  const [year, month, day] = dateISO.split("-").map(Number);
+  const [hours, minutes] = timeStr.split(":").map(Number);
+  return new Date(year, month - 1, day, hours, minutes, 0, 0);
+}
 
 export default function InstagramScheduleDialog({
   open,
@@ -137,6 +147,24 @@ export default function InstagramScheduleDialog({
     }
   };
 
+  // 5-minute buffer: items due within 5 min of now are treated as "publish immediately"
+  const FUTURE_THRESHOLD_MS = 5 * 60 * 1000;
+
+  const classifyItems = () => {
+    const cutoff = Date.now() + FUTURE_THRESHOLD_MS;
+    const dueNow: typeof scheduledItems = [];
+    const future: typeof scheduledItems = [];
+    for (const item of scheduledItems) {
+      const dt = toLocalDateTime(item.dateISO, item.time);
+      if (dt.getTime() <= cutoff) {
+        dueNow.push(item);
+      } else {
+        future.push(item);
+      }
+    }
+    return { dueNow, future };
+  };
+
   const handleScheduleAndPublish = async () => {
     if (!account || scheduledItems.length === 0) return;
 
@@ -146,8 +174,10 @@ export default function InstagramScheduleDialog({
       setProgress(0);
 
       const token = await getToken();
+      const { dueNow, future } = classifyItems();
 
-      const posts = scheduledItems.map((item) => ({
+      // Save ALL items to the DB (both future and due-now)
+      const allPosts = scheduledItems.map((item) => ({
         content_item_id: item.itemId,
         scheduled_date: item.dateISO,
         scheduled_time: item.time,
@@ -155,26 +185,36 @@ export default function InstagramScheduleDialog({
       }));
 
       const scheduledPosts = await scheduleInstagramPostsBatch(
-        { user_id: userId, instagram_account_id: account.id, posts },
+        { user_id: userId, instagram_account_id: account.id, posts: allPosts },
         token
       );
 
       setProgress(50);
-      setState("publishing");
 
-      const postIds = scheduledPosts.map((p) => p.id);
-      const results = await publishToInstagram(postIds, userId, token);
+      if (dueNow.length > 0) {
+        // Publish the due-now subset immediately
+        setState("publishing");
+        const dueNowIds = new Set(dueNow.map((i) => i.itemId));
+        const postIdsToPublish = scheduledPosts
+          .filter((p) => dueNowIds.has(p.content_item_id))
+          .map((p) => p.id);
 
-      setPublishResults(results);
-      setProgress(100);
-      setState("complete");
+        const results = await publishToInstagram(postIdsToPublish, userId, token);
+        setPublishResults(results);
+        setProgress(100);
+        setState("complete");
 
-      // Call success callback after a short delay to show results
-      if (results.succeeded > 0) {
-        setTimeout(() => {
-          onSuccess?.();
-        }, 2000);
+        if (results.succeeded > 0) {
+          setTimeout(() => onSuccess?.(), 2000);
+        }
+      } else {
+        // All items are in the future — scheduler will publish them at the right time
+        setProgress(100);
+        setState("scheduled");
+        setTimeout(() => onSuccess?.(), 2000);
       }
+
+      void future; // explicitly acknowledging future items are handled by the scheduler
     } catch (err: unknown) {
       console.error("Failed to schedule and publish:", err);
       setError(err instanceof Error ? err.message : "Failed to schedule and publish");
@@ -217,6 +257,21 @@ export default function InstagramScheduleDialog({
             </Button>
           </Stack>
         </Alert>
+      );
+    }
+
+    if (state === "scheduled") {
+      const { dueNow, future } = classifyItems();
+      return (
+        <Stack spacing={2}>
+          <Alert severity="success">
+            {future.length} {future.length === 1 ? "post has" : "posts have"} been scheduled
+            successfully. {dueNow.length > 0 ? `${dueNow.length} post(s) were published immediately.` : ""}
+          </Alert>
+          <Typography variant="body2" color="text.secondary">
+            Your content will be automatically published at the scheduled date and time.
+          </Typography>
+        </Stack>
       );
     }
 
@@ -460,7 +515,7 @@ export default function InstagramScheduleDialog({
       </DialogTitle>
       <DialogContent>{renderContent()}</DialogContent>
       <DialogActions>
-        {state === "complete" ? (
+        {state === "complete" || state === "scheduled" ? (
           <Button
             onClick={onClose}
             variant="contained"
@@ -494,9 +549,22 @@ export default function InstagramScheduleDialog({
                 },
               }}
             >
-              {state === "scheduling" || state === "publishing"
-                ? "Publishing..."
-                : "Publish Now"}
+              {state === "scheduling" || state === "publishing" ? (
+                "Processing..."
+              ) : (() => {
+                const cutoff = Date.now() + FUTURE_THRESHOLD_MS;
+                const allFuture = scheduledItems.every(
+                  (i) => toLocalDateTime(i.dateISO, i.time).getTime() > cutoff
+                );
+                const anyFuture = scheduledItems.some(
+                  (i) => toLocalDateTime(i.dateISO, i.time).getTime() > cutoff
+                );
+                return allFuture
+                  ? "Schedule for Later"
+                  : anyFuture
+                  ? "Schedule & Publish"
+                  : "Publish Now";
+              })()}
             </Button>
           </>
         )}
