@@ -49,11 +49,28 @@ type ProcessingState = "idle" | "scheduling" | "publishing" | "complete" | "sche
 /**
  * Build a local Date from a YYYY-MM-DD string and HH:MM time string.
  * Avoids the UTC-midnight pitfall of `new Date("YYYY-MM-DD")`.
+ * The result is in the user's local timezone.
  */
 function toLocalDateTime(dateISO: string, timeStr: string): Date {
   const [year, month, day] = dateISO.split("-").map(Number);
   const [hours, minutes] = timeStr.split(":").map(Number);
   return new Date(year, month - 1, day, hours, minutes, 0, 0);
+}
+
+/**
+ * Convert a local date + time (as entered by the user) to UTC YYYY-MM-DD and HH:MM.
+ * This is what we send to the backend so all stored times are in UTC.
+ *
+ * Example: user in UTC+2 enters "2026-03-01" / "10:00"
+ *   → UTC date "2026-03-01", UTC time "08:00"
+ */
+function toUTCSchedule(dateISO: string, timeStr: string): { scheduled_date: string; scheduled_time: string } {
+  const localDt = toLocalDateTime(dateISO, timeStr);
+  const iso = localDt.toISOString(); // always UTC, e.g. "2026-03-01T08:00:00.000Z"
+  return {
+    scheduled_date: iso.slice(0, 10),  // "YYYY-MM-DD" in UTC
+    scheduled_time: iso.slice(11, 16), // "HH:MM" in UTC
+  };
 }
 
 export default function InstagramScheduleDialog({
@@ -176,13 +193,17 @@ export default function InstagramScheduleDialog({
       const token = await getToken();
       const { dueNow, future } = classifyItems();
 
-      // Save ALL items to the DB (both future and due-now)
-      const allPosts = scheduledItems.map((item) => ({
-        content_item_id: item.itemId,
-        scheduled_date: item.dateISO,
-        scheduled_time: item.time,
-        campaign_id: campaignId,
-      }));
+      // Save ALL items to the DB — dates/times are converted to UTC so the backend
+      // stores and compares consistently regardless of the user's timezone.
+      const allPosts = scheduledItems.map((item) => {
+        const { scheduled_date, scheduled_time } = toUTCSchedule(item.dateISO, item.time);
+        return {
+          content_item_id: item.itemId,
+          scheduled_date,
+          scheduled_time,
+          campaign_id: campaignId,
+        };
+      });
 
       const scheduledPosts = await scheduleInstagramPostsBatch(
         { user_id: userId, instagram_account_id: account.id, posts: allPosts },
