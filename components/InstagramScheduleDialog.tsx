@@ -93,6 +93,9 @@ export default function InstagramScheduleDialog({
   const [publishResults, setPublishResults] = React.useState<PublishResponse | null>(null);
   const [progress, setProgress] = React.useState(0);
 
+  // 5-minute buffer: items due within 5 min of now are treated as "publish immediately"
+  const FUTURE_THRESHOLD_MS = 5 * 60 * 1000;
+
   const contentById = React.useMemo(() => {
     const map = new Map<string, ContentItem>();
     contentItems.forEach((item) => map.set(item.id, item));
@@ -195,9 +198,6 @@ export default function InstagramScheduleDialog({
       setLoading(false);
     }
   };
-
-  // 5-minute buffer: items due within 5 min of now are treated as "publish immediately"
-  const FUTURE_THRESHOLD_MS = 5 * 60 * 1000;
 
   const classifyItems = () => {
     const cutoff = Date.now() + FUTURE_THRESHOLD_MS;
