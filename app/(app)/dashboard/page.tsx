@@ -6,6 +6,7 @@ import InstagramScheduleDialog from "@/components/InstagramScheduleDialog";
 import ContentPreviewPopover from "@/components/ContentPreviewPopover";
 import {
   getSchedule,
+  getMediaTypeMap,
   removeSchedule,
   setScheduleOrderForDate,
   upsertSchedule,
@@ -123,7 +124,15 @@ function DashboardContent() {
 
       // Fetch ALL content items across all campaigns
       const allContent = await fetchAllUserContent(undefined, 100, token ?? undefined);
-      setContentItems(allContent);
+      // Merge persisted Reel/Story selections (set in the Review page) into each item
+      const savedMediaTypes = getMediaTypeMap(userId);
+      setContentItems(
+        allContent.map((item) =>
+          savedMediaTypes[item.id]
+            ? { ...item, instagramMediaType: savedMediaTypes[item.id] }
+            : item
+        )
+      );
 
       // Load schedule (still from localStorage for now)
       setSchedule(getSchedule(userId));

@@ -1,6 +1,7 @@
 import type {
   ContentItem,
   ContentStatus,
+  InstagramMediaType,
   ScheduleAssignment,
 } from "@/lib/types";
 
@@ -213,6 +214,24 @@ export function setScheduleOrderForDate(
   });
 
   saveSchedule(next, userId);
+}
+
+// ============================================================================
+// Media Type Persistence (Reel vs Story per content item)
+// ============================================================================
+
+export function getMediaTypeMap(userId?: string): Record<string, InstagramMediaType> {
+  if (!isBrowser()) return {};
+  const key = getUserKey(userId, "media_types");
+  return safeParseJSON<Record<string, InstagramMediaType>>(localStorage.getItem(key)) ?? {};
+}
+
+export function setMediaType(itemId: string, mediaType: InstagramMediaType, userId?: string) {
+  if (!isBrowser()) return;
+  const key = getUserKey(userId, "media_types");
+  const map = getMediaTypeMap(userId);
+  map[itemId] = mediaType;
+  localStorage.setItem(key, JSON.stringify(map));
 }
 
 export function resetAllDemoData(userId?: string) {

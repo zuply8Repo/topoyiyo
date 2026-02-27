@@ -22,6 +22,7 @@ import type {
   PromptResponse,
   PromptType,
 } from "@/lib/types";
+import { setMediaType } from "@/lib/store";
 import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
@@ -402,17 +403,20 @@ function ReviewPageContent() {
     regularItems.forEach((item) => {
       if (item.assetType !== "video" && item.assetType !== "image") return;
       const pt = promptTypeMap[item.id];
-      defaults[item.id] =
-        pt === "story_image" ? "STORIES" : "REELS";
+      defaults[item.id] = pt === "story_image" ? "STORIES" : "REELS";
     });
     setMediaTypeMap((prev) => {
       const merged = { ...prev };
       Object.entries(defaults).forEach(([k, v]) => {
-        if (merged[k] === undefined) merged[k] = v;
+        if (merged[k] === undefined) {
+          merged[k] = v;
+          // Persist the default so the dashboard can read it
+          setMediaType(k, v, userId ?? undefined);
+        }
       });
       return merged;
     });
-  }, [regularItems, promptTypeMap]);
+  }, [regularItems, promptTypeMap, userId]);
 
   const handleDeleteAllCarousel = async (ids: string[]) => {
     if (!userId) return;
@@ -662,11 +666,13 @@ function ReviewPageContent() {
                   }
                   onMediaTypeChange={
                     showMediaTypeToggle
-                      ? (type) =>
+                      ? (type) => {
                           setMediaTypeMap((prev) => ({
                             ...prev,
                             [item.id]: type,
-                          }))
+                          }));
+                          setMediaType(item.id, type, userId ?? undefined);
+                        }
                       : undefined
                   }
                 />

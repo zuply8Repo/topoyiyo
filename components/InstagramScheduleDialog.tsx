@@ -197,11 +197,16 @@ export default function InstagramScheduleDialog({
       // stores and compares consistently regardless of the user's timezone.
       const allPosts = scheduledItems.map((item) => {
         const { scheduled_date, scheduled_time } = toUTCSchedule(item.dateISO, item.time);
+        const contentItem = contentById.get(item.itemId);
+        const mediaType =
+          contentItem?.instagramMediaType ??
+          (contentItem?.assetType === "video" ? "REELS" : "STORIES");
         return {
           content_item_id: item.itemId,
           scheduled_date,
           scheduled_time,
           campaign_id: campaignId,
+          media_type: mediaType,
         };
       });
 
