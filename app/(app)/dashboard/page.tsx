@@ -1069,6 +1069,7 @@ function DashboardContent() {
         campaignId={campaign?.id}
         scheduledItems={schedule}
         contentItems={contentItems}
+        instagramPostByContentId={instagramPostByContentId}
         onSuccess={() => {
           setInstagramDialogOpen(false);
           setToast("Successfully published to Instagram!");

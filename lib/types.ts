@@ -185,6 +185,7 @@ export type InstagramScheduledPost = {
   scheduled_date: string;
   scheduled_time: string;
   publish_status: InstagramPublishStatus;
+  media_type?: string; // "REELS", "STORIES", or "CAROUSEL"
   instagram_permalink?: string;
   error_message?: string;
   created_at: string;

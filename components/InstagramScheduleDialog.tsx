@@ -41,6 +41,8 @@ export interface InstagramScheduleDialogProps {
   campaignId?: string;
   scheduledItems: ScheduleAssignment[];
   contentItems: ContentItem[];
+  /** Map of contentItemId → existing backend scheduled post, used to skip re-publishing. */
+  instagramPostByContentId?: Map<string, import("@/lib/types").InstagramScheduledPost>;
   onSuccess?: () => void;
 }
 
@@ -80,6 +82,7 @@ export default function InstagramScheduleDialog({
   campaignId,
   scheduledItems,
   contentItems,
+  instagramPostByContentId,
   onSuccess,
 }: InstagramScheduleDialogProps) {
   const { getToken } = useAuth();
@@ -95,6 +98,35 @@ export default function InstagramScheduleDialog({
     contentItems.forEach((item) => map.set(item.id, item));
     return map;
   }, [contentItems]);
+
+  // Items that are eligible to be (re-)scheduled this run.
+  // Computed here so the preview list and handleScheduleAndPublish share the same set.
+  const eligibleItemsMemo = React.useMemo(() => {
+    const now = Date.now();
+    return scheduledItems.filter((item) => {
+      const existingPost = instagramPostByContentId?.get(item.itemId);
+
+      if (!existingPost) {
+        const dt = toLocalDateTime(item.dateISO, item.time);
+        return dt.getTime() >= now - FUTURE_THRESHOLD_MS;
+      }
+
+      if (existingPost.publish_status === "published") {
+        const { scheduled_date: utcDate, scheduled_time: utcTime } = toUTCSchedule(
+          item.dateISO,
+          item.time
+        );
+        const dateChanged =
+          utcDate !== existingPost.scheduled_date ||
+          utcTime.slice(0, 5) !== existingPost.scheduled_time.slice(0, 5);
+        if (!dateChanged) return false;
+        const newDt = toLocalDateTime(item.dateISO, item.time);
+        return newDt.getTime() > now + FUTURE_THRESHOLD_MS;
+      }
+
+      return true;
+    });
+  }, [scheduledItems, instagramPostByContentId]);
 
   // Load Instagram account when dialog opens
   React.useEffect(() => {
@@ -182,8 +214,22 @@ export default function InstagramScheduleDialog({
     return { dueNow, future };
   };
 
+  /** Thin wrapper so handleScheduleAndPublish can call a function (avoids re-computing). */
+  const filterEligibleItems = () => eligibleItemsMemo;
+
   const handleScheduleAndPublish = async () => {
     if (!account || scheduledItems.length === 0) return;
+
+    // Only process items that haven't already been published (or were rescheduled).
+    const eligibleItems = filterEligibleItems();
+
+    if (eligibleItems.length === 0) {
+      setError(
+        "All calendar items have already been published. " +
+          "Drag an item to a new future date to schedule it again."
+      );
+      return;
+    }
 
     try {
       setState("scheduling");
@@ -191,11 +237,20 @@ export default function InstagramScheduleDialog({
       setProgress(0);
 
       const token = await getToken();
-      const { dueNow, future } = classifyItems();
+      const { dueNow, future } = (() => {
+        const cutoff = Date.now() + FUTURE_THRESHOLD_MS;
+        const dueNow: typeof eligibleItems = [];
+        const future: typeof eligibleItems = [];
+        for (const item of eligibleItems) {
+          const dt = toLocalDateTime(item.dateISO, item.time);
+          if (dt.getTime() <= cutoff) dueNow.push(item);
+          else future.push(item);
+        }
+        return { dueNow, future };
+      })();
 
-      // Save ALL items to the DB — dates/times are converted to UTC so the backend
-      // stores and compares consistently regardless of the user's timezone.
-      const allPosts = scheduledItems.map((item) => {
+      // Save only eligible items to the DB — dates/times converted to UTC.
+      const allPosts = eligibleItems.map((item) => {
         const { scheduled_date, scheduled_time } = toUTCSchedule(item.dateISO, item.time);
         const contentItem = contentById.get(item.itemId);
         const mediaType =
@@ -422,13 +477,18 @@ export default function InstagramScheduleDialog({
 
         <Divider />
 
-        {/* Scheduled Items Preview */}
+        {/* Scheduled Items Preview — shows only items eligible to be published */}
         <Box>
           <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.5 }}>
-            Content to Publish ({scheduledItems.length} {scheduledItems.length === 1 ? "post" : "posts"})
+            Content to Publish ({eligibleItemsMemo.length} {eligibleItemsMemo.length === 1 ? "post" : "posts"})
+            {eligibleItemsMemo.length < scheduledItems.length && (
+              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                ({scheduledItems.length - eligibleItemsMemo.length} already published)
+              </Typography>
+            )}
           </Typography>
           <List dense>
-            {scheduledItems.slice(0, 5).map((item, index) => {
+            {eligibleItemsMemo.slice(0, 5).map((item, index) => {
               const content = contentById.get(item.itemId);
               const isVideo = content?.assetType === "video";
               const mediaUrl = isVideo ? content?.videoUrl : content?.imageUrl;
@@ -491,14 +551,14 @@ export default function InstagramScheduleDialog({
                       secondary={`${item.dateISO} at ${item.time}`}
                     />
                   </ListItem>
-                  {index < Math.min(scheduledItems.length, 5) - 1 && <Divider />}
+                  {index < Math.min(eligibleItemsMemo.length, 5) - 1 && <Divider />}
                 </React.Fragment>
               );
             })}
-            {scheduledItems.length > 5 && (
+            {eligibleItemsMemo.length > 5 && (
               <ListItem>
                 <ListItemText
-                  primary={`... and ${scheduledItems.length - 5} more`}
+                  primary={`... and ${eligibleItemsMemo.length - 5} more`}
                   sx={{ textAlign: "center" }}
                 />
               </ListItem>
@@ -563,7 +623,7 @@ export default function InstagramScheduleDialog({
               variant="contained"
               disabled={
                 !account ||
-                scheduledItems.length === 0 ||
+                eligibleItemsMemo.length === 0 ||
                 state === "scheduling" ||
                 state === "publishing"
               }
@@ -579,13 +639,15 @@ export default function InstagramScheduleDialog({
                 "Processing..."
               ) : (() => {
                 const cutoff = Date.now() + FUTURE_THRESHOLD_MS;
-                const allFuture = scheduledItems.every(
+                const allFuture = eligibleItemsMemo.every(
                   (i) => toLocalDateTime(i.dateISO, i.time).getTime() > cutoff
                 );
-                const anyFuture = scheduledItems.some(
+                const anyFuture = eligibleItemsMemo.some(
                   (i) => toLocalDateTime(i.dateISO, i.time).getTime() > cutoff
                 );
-                return allFuture
+                return eligibleItemsMemo.length === 0
+                  ? "Nothing to Publish"
+                  : allFuture
                   ? "Schedule for Later"
                   : anyFuture
                   ? "Schedule & Publish"
