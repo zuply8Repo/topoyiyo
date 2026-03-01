@@ -25,7 +25,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useSearchParams } from "next/navigation";
-import React from "react";
+import React, { Suspense } from "react";
 
 const TOP_UP_OPTIONS = [10, 25, 50, 100];
 
@@ -97,7 +97,7 @@ const OUTCOME_PLANS: OutcomePlan[] = [
   },
 ];
 
-export default function BillingPage() {
+function BillingPageInner() {
   const { userId, isLoaded, getToken } = useAuth();
   const searchParams = useSearchParams();
   const [balance, setBalance] = React.useState(0);
@@ -384,5 +384,13 @@ export default function BillingPage() {
 
       {error ? <Alert severity="error">{error}</Alert> : null}
     </Stack>
+  );
+}
+
+export default function BillingPage() {
+  return (
+    <Suspense fallback={<CircularProgress />}>
+      <BillingPageInner />
+    </Suspense>
   );
 }
