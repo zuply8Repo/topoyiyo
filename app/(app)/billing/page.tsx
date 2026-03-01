@@ -1,7 +1,8 @@
 "use client";
 
-import { getCreditBalance, topUpCredits } from "@/lib/api";
+import { createCheckoutSession, getCreditBalance, PackageId } from "@/lib/api";
 import { useAuth } from "@clerk/nextjs";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import {
   Accordion,
@@ -23,6 +24,7 @@ import {
   TableRow,
   Typography,
 } from "@mui/material";
+import { useSearchParams } from "next/navigation";
 import React from "react";
 
 const TOP_UP_OPTIONS = [10, 25, 50, 100];
@@ -97,10 +99,14 @@ const OUTCOME_PLANS: OutcomePlan[] = [
 
 export default function BillingPage() {
   const { userId, isLoaded, getToken } = useAuth();
+  const searchParams = useSearchParams();
   const [balance, setBalance] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
-  const [pendingAmount, setPendingAmount] = React.useState<number | null>(null);
+  const [pendingPackage, setPendingPackage] = React.useState<PackageId | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+
+  const paymentSuccess = !!searchParams.get("session_id");
+  const paymentCanceled = searchParams.get("canceled") === "true";
 
   const refresh = React.useCallback(async () => {
     if (!userId) return;
@@ -121,18 +127,16 @@ export default function BillingPage() {
     refresh();
   }, [refresh]);
 
-  const handleTopUp = async (amount: number) => {
+  const handleSelectPlan = async (packageId: PackageId) => {
     if (!userId) return;
     try {
-      setPendingAmount(amount);
+      setPendingPackage(packageId);
       const token = await getToken();
-      const nextBalance = await topUpCredits(amount, token ?? undefined);
-      setBalance(nextBalance);
-      setError(null);
+      const sessionUrl = await createCheckoutSession(packageId, token ?? undefined);
+      window.location.href = sessionUrl;
     } catch {
-      setError("Top-up failed. Please try again.");
-    } finally {
-      setPendingAmount(null);
+      setError("Could not start checkout. Please try again.");
+      setPendingPackage(null);
     }
   };
 
@@ -175,6 +179,21 @@ export default function BillingPage() {
           Pay for results, not subscriptions you don’t use.
         </Typography>
       </Stack>
+
+      {paymentSuccess && (
+        <Alert
+          severity="success"
+          icon={<CheckCircleOutlineIcon fontSize="inherit" />}
+          sx={{ borderRadius: 2 }}
+        >
+          Payment successful! Your credits have been added to your balance.
+        </Alert>
+      )}
+      {paymentCanceled && (
+        <Alert severity="info" sx={{ borderRadius: 2 }}>
+          Payment canceled. No charge was made.
+        </Alert>
+      )}
 
       <Paper variant="outlined" sx={{ borderRadius: 3, p: 2.5 }}>
         <Stack spacing={1}>
@@ -289,6 +308,8 @@ export default function BillingPage() {
                     variant="contained"
                     fullWidth
                     size={plan.mostPopular ? "large" : "medium"}
+                    disabled={!!pendingPackage}
+                    onClick={() => handleSelectPlan(plan.id as PackageId)}
                     sx={{
                       textTransform: "none",
                       borderRadius: 2,
@@ -296,7 +317,11 @@ export default function BillingPage() {
                       py: plan.mostPopular ? 1.5 : 1.25,
                     }}
                   >
-                    {plan.cta}
+                    {pendingPackage === plan.id ? (
+                      <CircularProgress size={20} color="inherit" />
+                    ) : (
+                      plan.cta
+                    )}
                   </Button>
                 </CardContent>
               </Card>

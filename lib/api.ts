@@ -983,3 +983,27 @@ export async function topUpCredits(
   const data = (await response.json()) as { balance_eur: number };
   return data.balance_eur;
 }
+
+// ============================================================================
+// Payments API
+// ============================================================================
+
+export type PackageId = "creator" | "growth" | "agency";
+
+export async function createCheckoutSession(
+  packageId: PackageId,
+  token?: string | null
+): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/payments/create-checkout-session`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify({ package_id: packageId }),
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Failed to create checkout session");
+  }
+
+  const data = (await response.json()) as { session_url: string };
+  return data.session_url;
+}
