@@ -26,7 +26,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import InstagramIcon from "@mui/icons-material/Instagram";
 import CollectionsIcon from "@mui/icons-material/Collections";
 import InstagramStatusBadge from "@/components/InstagramStatusBadge";
-import { listScheduledPosts, type InstagramScheduledPost } from "@/lib/instagram";
+import { listScheduledPosts, cancelScheduledPost, type InstagramScheduledPost } from "@/lib/instagram";
 import MobileScheduleDialog from "@/components/MobileScheduleDialog";
 import MobileDayScheduleDrawer from "@/components/MobileDayScheduleDrawer";
 import {
@@ -262,6 +262,27 @@ function DashboardContent() {
     return m;
   }, [instagramPosts]);
 
+  /**
+   * Optimistically removes the Instagram post badge for an item and cancels it
+   * on the backend so the item can be re-queued after rescheduling.
+   */
+  const cancelInstagramPostForItem = React.useCallback(
+    async (itemId: string) => {
+      const igPost = instagramPostByContentId.get(itemId);
+      if (!igPost) return;
+      // Optimistic update — remove badge immediately
+      setInstagramPosts((prev) => prev.filter((p) => p.id !== igPost.id));
+      try {
+        const token = await getToken();
+        await cancelScheduledPost(igPost.id, token);
+      } catch (e) {
+        console.error("Failed to cancel Instagram post on reschedule:", e);
+        refresh();
+      }
+    },
+    [instagramPostByContentId, getToken, refresh]
+  );
+
   // Carousel detection: caption "Carousel image - carousel_post_X_img_Y"
   const { carouselGroups, regularItems } = React.useMemo(() => {
     const isCarousel = (i: ContentItem) =>
@@ -472,12 +493,14 @@ function DashboardContent() {
           gridTemplateColumns: { xs: "1fr", md: "360px 1fr" },
           gap: 2,
           alignItems: "start",
+          maxWidth: "100%",
+          overflow: "hidden",
         }}
       >
         {/* Left: content library */}
         <Paper
           variant="outlined"
-          sx={{ borderRadius: 4, borderColor: "divider", overflow: "hidden" }}
+          sx={{ borderRadius: 4, borderColor: "divider", overflow: "hidden", maxWidth: "100%" }}
         >
           <Box
             sx={{
@@ -884,7 +907,7 @@ function DashboardContent() {
         {/* Right: calendar */}
         <Paper
           variant="outlined"
-          sx={{ borderRadius: 4, borderColor: "divider", p: 2 }}
+          sx={{ borderRadius: 4, borderColor: "divider", p: 2, overflow: "hidden", maxWidth: "100%" }}
         >
           <Stack
             direction={{ xs: "column", sm: "row" }}
@@ -922,23 +945,21 @@ function DashboardContent() {
             </Stack>
           </Stack>
 
-          {/* Horizontal scroll wrapper on mobile for wider day cells */}
-          <Box sx={{ mt: 2, overflowX: { xs: "auto", sm: "visible" } }}>
           <Box
             sx={{
+              mt: 2,
               display: "grid",
-              // minmax(0, 1fr) is critical for equal-width columns when children have long content.
               gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-              minWidth: { xs: 490, sm: "auto" },
-              gap: 1,
+              gap: { xs: 0.5, sm: 1 },
             }}
           >
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-              <Box key={d} sx={{ px: 1, py: 0.5, minWidth: 0 }}>
+              <Box key={d} sx={{ px: { xs: 0.5, sm: 1 }, py: 0.5, minWidth: 0, textAlign: "center" }}>
                 <Typography
                   variant="caption"
                   color="text.secondary"
-                  sx={{ fontWeight: 800 }}
+                  sx={{ fontWeight: 800, fontSize: { xs: "0.6rem", sm: "0.75rem" } }}
+                  noWrap
                 >
                   {d}
                 </Typography>
@@ -1155,7 +1176,6 @@ function DashboardContent() {
               );
             })}
           </Box>
-          </Box>{/* end horizontal scroll wrapper */}
         </Paper>
       </Box>
 
@@ -1321,16 +1341,17 @@ function DashboardContent() {
         initialDate={mobilePreview?.existingSchedule?.dateISO}
         initialTime={mobilePreview?.existingSchedule?.time}
         onCancel={() => setMobileScheduleOpen(false)}
-        onConfirm={(dateISO, time) => {
+        onConfirm={async (dateISO, time) => {
           if (!mobilePreview || !userId) return;
-          mobilePreview.itemIds.forEach((id) =>
-            upsertSchedule(id, dateISO, time, userId)
-          );
+          const ids = mobilePreview.itemIds;
+          ids.forEach((id) => upsertSchedule(id, dateISO, time, userId));
+          // Cancel any existing Instagram posts so item re-enters the queue
+          await Promise.all(ids.map((id) => cancelInstagramPostForItem(id)));
           setMobileScheduleOpen(false);
           setMobilePreview(null);
           refresh();
           setToast(
-            mobilePreview.itemIds.length > 1
+            ids.length > 1
               ? "Carousel scheduled to calendar."
               : "Content scheduled to calendar."
           );
@@ -1359,10 +1380,12 @@ function DashboardContent() {
         dateISO={dropTarget?.dateISO ?? null}
         itemId={dropTarget?.itemId ?? null}
         onCancel={() => setDropTarget(null)}
-        onConfirm={(time) => {
+        onConfirm={async (time) => {
           if (!dropTarget) return;
           const ids = dropTarget.allItemIds ?? [dropTarget.itemId];
           ids.forEach((id) => upsertSchedule(id, dropTarget.dateISO, time, userId));
+          // Cancel any existing Instagram posts so item re-enters the queue
+          await Promise.all(ids.map((id) => cancelInstagramPostForItem(id)));
           setDropTarget(null);
           refresh();
           setToast(ids.length > 1 ? "Carousel scheduled to calendar." : "Content scheduled to calendar.");
