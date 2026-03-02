@@ -27,19 +27,26 @@ import InstagramIcon from "@mui/icons-material/Instagram";
 import CollectionsIcon from "@mui/icons-material/Collections";
 import InstagramStatusBadge from "@/components/InstagramStatusBadge";
 import { listScheduledPosts, type InstagramScheduledPost } from "@/lib/instagram";
+import MobileScheduleDialog from "@/components/MobileScheduleDialog";
 import {
   Alert,
   Box,
   Button,
   Chip,
   CircularProgress,
+  Collapse,
   Divider,
   IconButton,
   Paper,
   Snackbar,
   Stack,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
+import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 
 function byTime(a: ScheduleAssignment, b: ScheduleAssignment) {
   const ao = a.order ?? 0;
@@ -70,6 +77,8 @@ function DashboardPageContent() {
 function DashboardContent() {
   const { userId, isLoaded, getToken } = useAuth();
   const searchParams = useSearchParams();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [campaign, setCampaign] = React.useState<Campaign | null>(null);
   const [campaigns, setCampaigns] = React.useState<Campaign[]>([]);
@@ -101,6 +110,15 @@ function DashboardContent() {
     items: ContentItem[];
     mediaType: InstagramMediaType;
   } | null>(null);
+
+  // Mobile-specific state
+  const [isLibraryOpen, setIsLibraryOpen] = React.useState(false);
+  const [mobilePreview, setMobilePreview] = React.useState<{
+    itemIds: string[];
+    items: ContentItem[];
+    mediaType: InstagramMediaType;
+  } | null>(null);
+  const [mobileScheduleOpen, setMobileScheduleOpen] = React.useState(false);
 
   // Load active campaign and its content
   const loadCampaignContent = React.useCallback(async () => {
@@ -450,15 +468,50 @@ function DashboardContent() {
           variant="outlined"
           sx={{ borderRadius: 4, borderColor: "divider", overflow: "hidden" }}
         >
-          <Box sx={{ p: 2 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
-              Content Library
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Drag images or videos to schedule them on the calendar.
-            </Typography>
+          <Box
+            sx={{
+              p: 2,
+              display: "flex",
+              alignItems: "center",
+              cursor: { xs: "pointer", sm: "default" },
+            }}
+            onClick={() => {
+              if (isMobile) setIsLibraryOpen((v) => !v);
+            }}
+          >
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
+                Content Library
+              </Typography>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ display: { xs: "none", sm: "block" } }}
+              >
+                Drag images or videos to schedule them on the calendar.
+              </Typography>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ display: { xs: "block", sm: "none" } }}
+              >
+                {isLibraryOpen ? "Tap a card to preview & schedule." : "Tap to browse your content."}
+              </Typography>
+            </Box>
+            <IconButton
+              size="small"
+              aria-label={isLibraryOpen ? "Collapse content library" : "Expand content library"}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsLibraryOpen((v) => !v);
+              }}
+              sx={{ display: { xs: "flex", sm: "none" } }}
+            >
+              {isLibraryOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+            </IconButton>
           </Box>
           <Divider />
+          <Collapse in={isMobile ? isLibraryOpen : true}>
           <Stack 
             spacing={1} 
             sx={{ 
@@ -509,11 +562,19 @@ function DashboardContent() {
                       onPointerUp={onPointerUpDrag}
                       onClick={(e) => {
                         if (dragging) return;
-                        setPreviewAnchor({
-                          el: e.currentTarget as HTMLElement,
-                          items: group,
-                          mediaType: "CAROUSEL",
-                        });
+                        if (isMobile) {
+                          setMobilePreview({
+                            itemIds: ids,
+                            items: group,
+                            mediaType: "CAROUSEL",
+                          });
+                        } else {
+                          setPreviewAnchor({
+                            el: e.currentTarget as HTMLElement,
+                            items: group,
+                            mediaType: "CAROUSEL",
+                          });
+                        }
                       }}
                       sx={{
                         borderRadius: 3,
@@ -646,11 +707,19 @@ function DashboardContent() {
                       onPointerUp={onPointerUpDrag}
                       onClick={(e) => {
                         if (dragging) return;
-                        setPreviewAnchor({
-                          el: e.currentTarget as HTMLElement,
-                          items: [it],
-                          mediaType: it.instagramMediaType ?? inferredMediaType,
-                        });
+                        if (isMobile) {
+                          setMobilePreview({
+                            itemIds: [it.id],
+                            items: [it],
+                            mediaType: it.instagramMediaType ?? inferredMediaType,
+                          });
+                        } else {
+                          setPreviewAnchor({
+                            el: e.currentTarget as HTMLElement,
+                            items: [it],
+                            mediaType: it.instagramMediaType ?? inferredMediaType,
+                          });
+                        }
                       }}
                       sx={{
                         borderRadius: 3,
@@ -790,6 +859,7 @@ function DashboardContent() {
               </>
             )}
           </Stack>
+          </Collapse>
         </Paper>
 
         {/* Right: calendar */}
@@ -1038,6 +1108,163 @@ function DashboardContent() {
           </Box>
         </Paper>
       </Box>
+
+      {/* Mobile preview overlay — fixed top-right, visible only on xs */}
+      {mobilePreview && (
+        <Box
+          sx={{
+            display: { xs: "block", sm: "none" },
+            position: "fixed",
+            top: 64,
+            right: 12,
+            zIndex: 1400,
+            width: 196,
+          }}
+        >
+          <Paper
+            variant="outlined"
+            sx={{ borderRadius: 3, overflow: "hidden", boxShadow: 6 }}
+          >
+            {/* Close button row */}
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              sx={{ px: 1, pt: 0.5, pb: 0 }}
+            >
+              <Typography variant="caption" sx={{ fontWeight: 800, color: "text.secondary" }}>
+                Preview
+              </Typography>
+              <IconButton
+                size="small"
+                onClick={() => setMobilePreview(null)}
+                aria-label="Close preview"
+              >
+                <ClearIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Stack>
+
+            {/* Thumbnail */}
+            <Box
+              sx={{
+                width: "100%",
+                height: 110,
+                bgcolor: "grey.900",
+                position: "relative",
+                overflow: "hidden",
+              }}
+            >
+              {mobilePreview.items.length > 1 ? (
+                <Stack direction="row" sx={{ height: "100%" }}>
+                  {mobilePreview.items.slice(0, 3).map((item) => (
+                    <Box
+                      key={item.id}
+                      sx={{ flex: 1, minWidth: 0, borderRight: 1, borderColor: "divider" }}
+                    >
+                      {item.imageUrl && (
+                        <Box
+                          component="img"
+                          src={item.imageUrl}
+                          alt=""
+                          sx={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        />
+                      )}
+                    </Box>
+                  ))}
+                </Stack>
+              ) : mobilePreview.items[0]?.assetType === "video" && mobilePreview.items[0]?.videoUrl ? (
+                <>
+                  <video
+                    src={mobilePreview.items[0].videoUrl}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  />
+                  <Box
+                    sx={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      bgcolor: "rgba(0,0,0,0.25)",
+                    }}
+                  >
+                    <PlayArrowIcon sx={{ color: "white", fontSize: 32 }} />
+                  </Box>
+                </>
+              ) : mobilePreview.items[0]?.imageUrl ? (
+                <Box
+                  component="img"
+                  src={mobilePreview.items[0].imageUrl}
+                  alt=""
+                  sx={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              ) : null}
+            </Box>
+
+            {/* Caption snippet */}
+            <Box sx={{ px: 1, pt: 0.75 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {mobilePreview.items.length > 1
+                  ? (mobilePreview.items[0]?.caption ?? "")
+                      .replace(/^Carousel image -\s*carousel_post_\d+_img_\d+\s*/i, "")
+                      .trim() || "Carousel post"
+                  : mobilePreview.items[0]?.caption || "No caption"}
+              </Typography>
+            </Box>
+
+            {/* Schedule button */}
+            <Box sx={{ p: 1 }}>
+              <Button
+                fullWidth
+                variant="contained"
+                size="small"
+                startIcon={<CalendarTodayIcon sx={{ fontSize: 14 }} />}
+                onClick={() => setMobileScheduleOpen(true)}
+                sx={{
+                  textTransform: "none",
+                  borderRadius: 999,
+                  fontWeight: 800,
+                  fontSize: "0.72rem",
+                }}
+              >
+                Schedule
+              </Button>
+            </Box>
+          </Paper>
+        </Box>
+      )}
+
+      <MobileScheduleDialog
+        open={mobileScheduleOpen}
+        onCancel={() => setMobileScheduleOpen(false)}
+        onConfirm={(dateISO, time) => {
+          if (!mobilePreview || !userId) return;
+          mobilePreview.itemIds.forEach((id) =>
+            upsertSchedule(id, dateISO, time, userId)
+          );
+          setMobileScheduleOpen(false);
+          setMobilePreview(null);
+          refresh();
+          setToast(
+            mobilePreview.itemIds.length > 1
+              ? "Carousel scheduled to calendar."
+              : "Content scheduled to calendar."
+          );
+        }}
+      />
 
       <TimeSelectDialog
         open={Boolean(dropTarget)}
