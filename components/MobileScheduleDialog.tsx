@@ -16,6 +16,10 @@ export type MobileScheduleDialogProps = {
   open: boolean;
   onCancel: () => void;
   onConfirm: (dateISO: string, time: string) => void;
+  /** Pre-fill with existing scheduled date when rescheduling */
+  initialDate?: string;
+  /** Pre-fill with existing scheduled time when rescheduling */
+  initialTime?: string;
 };
 
 function toDateISO(date: Date): string {
@@ -35,18 +39,20 @@ export default function MobileScheduleDialog({
   open,
   onCancel,
   onConfirm,
+  initialDate,
+  initialTime,
 }: MobileScheduleDialogProps) {
   const now = new Date();
-  const [dateISO, setDateISO] = React.useState(toDateISO(now));
-  const [time, setTime] = React.useState(toHHMM(now));
+  const [dateISO, setDateISO] = React.useState(initialDate ?? toDateISO(now));
+  const [time, setTime] = React.useState(initialTime ?? toHHMM(now));
 
   React.useEffect(() => {
     if (open) {
       const n = new Date();
-      setDateISO(toDateISO(n));
-      setTime(toHHMM(n));
+      setDateISO(initialDate ?? toDateISO(n));
+      setTime(initialTime ?? toHHMM(n));
     }
-  }, [open]);
+  }, [open, initialDate, initialTime]);
 
   const handleConfirm = () => {
     if (!dateISO) return;
@@ -71,7 +77,7 @@ export default function MobileScheduleDialog({
         sx={{ fontWeight: 800, display: "flex", alignItems: "center", gap: 1 }}
       >
         <CalendarTodayIcon sx={{ fontSize: 20 }} />
-        Schedule Content
+        {initialDate ? "Reschedule Content" : "Schedule Content"}
       </DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>

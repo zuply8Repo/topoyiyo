@@ -28,6 +28,7 @@ import CollectionsIcon from "@mui/icons-material/Collections";
 import InstagramStatusBadge from "@/components/InstagramStatusBadge";
 import { listScheduledPosts, type InstagramScheduledPost } from "@/lib/instagram";
 import MobileScheduleDialog from "@/components/MobileScheduleDialog";
+import MobileDayScheduleDrawer from "@/components/MobileDayScheduleDrawer";
 import {
   Alert,
   Box,
@@ -117,8 +118,10 @@ function DashboardContent() {
     itemIds: string[];
     items: ContentItem[];
     mediaType: InstagramMediaType;
+    existingSchedule?: { dateISO: string; time: string };
   } | null>(null);
   const [mobileScheduleOpen, setMobileScheduleOpen] = React.useState(false);
+  const [mobileDayPreview, setMobileDayPreview] = React.useState<string | null>(null);
 
   // Load active campaign and its content
   const loadCampaignContent = React.useCallback(async () => {
@@ -245,6 +248,11 @@ function DashboardContent() {
     for (const [k, v] of m) m.set(k, v.sort(byTime));
     return m;
   }, [schedule]);
+
+  const mobileDayAssignments = React.useMemo(
+    () => (mobileDayPreview ? (assignmentsByDate.get(mobileDayPreview) ?? []) : []),
+    [mobileDayPreview, assignmentsByDate]
+  );
 
   const instagramPostByContentId = React.useMemo(() => {
     const m = new Map<string, InstagramScheduledPost>();
@@ -419,8 +427,11 @@ function DashboardContent() {
         <Typography variant="h5" sx={{ fontWeight: 900 }}>
           Dashboard
         </Typography>
-        <Typography color="text.secondary">
+        <Typography color="text.secondary" sx={{ display: { xs: "none", sm: "block" } }}>
           Drag content items onto the calendar to schedule by day/time.
+        </Typography>
+        <Typography color="text.secondary" sx={{ display: { xs: "block", sm: "none" } }}>
+          Tap content items to preview and schedule them.
         </Typography>
       </Stack>
 
@@ -563,10 +574,14 @@ function DashboardContent() {
                       onClick={(e) => {
                         if (dragging) return;
                         if (isMobile) {
+                          const firstAssignment = assignmentByItemId.get(ids[0]);
                           setMobilePreview({
                             itemIds: ids,
                             items: group,
                             mediaType: "CAROUSEL",
+                            existingSchedule: firstAssignment
+                              ? { dateISO: firstAssignment.dateISO, time: firstAssignment.time }
+                              : undefined,
                           });
                         } else {
                           setPreviewAnchor({
@@ -708,10 +723,14 @@ function DashboardContent() {
                       onClick={(e) => {
                         if (dragging) return;
                         if (isMobile) {
+                          const existing = assignmentByItemId.get(it.id);
                           setMobilePreview({
                             itemIds: [it.id],
                             items: [it],
                             mediaType: it.instagramMediaType ?? inferredMediaType,
+                            existingSchedule: existing
+                              ? { dateISO: existing.dateISO, time: existing.time }
+                              : undefined,
                           });
                         } else {
                           setPreviewAnchor({
@@ -903,12 +922,14 @@ function DashboardContent() {
             </Stack>
           </Stack>
 
+          {/* Horizontal scroll wrapper on mobile for wider day cells */}
+          <Box sx={{ mt: 2, overflowX: { xs: "auto", sm: "visible" } }}>
           <Box
             sx={{
-              mt: 2,
               display: "grid",
               // minmax(0, 1fr) is critical for equal-width columns when children have long content.
               gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+              minWidth: { xs: 490, sm: "auto" },
               gap: 1,
             }}
           >
@@ -932,8 +953,13 @@ function DashboardContent() {
                   variant="outlined"
                   data-cb-day
                   data-dateiso={c.dateISO}
+                  onClick={() => {
+                    if (isMobile && dayAssignments.length > 0) {
+                      setMobileDayPreview(c.dateISO);
+                    }
+                  }}
                   sx={{
-                    minHeight: 128,
+                    minHeight: { xs: 72, sm: 128 },
                     borderRadius: 3,
                     borderColor: "divider",
                     p: 1,
@@ -946,20 +972,43 @@ function DashboardContent() {
                       dragging && hoverDateISO === c.dateISO
                         ? "primary.main"
                         : "transparent",
+                    cursor: isMobile && dayAssignments.length > 0 ? "pointer" : "default",
                   }}
                 >
                   <Stack spacing={0.75}>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ fontWeight: 900 }}
-                    >
-                      {c.date.getDate()}
-                    </Typography>
+                    {/* Day number — on mobile show count badge when items exist */}
+                    <Stack direction="row" alignItems="center" justifyContent="space-between">
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ fontWeight: 900 }}
+                      >
+                        {c.date.getDate()}
+                      </Typography>
+                      {isMobile && dayAssignments.length > 0 && (
+                        <Box
+                          sx={{
+                            width: 16,
+                            height: 16,
+                            borderRadius: "50%",
+                            bgcolor: "primary.main",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Typography sx={{ fontSize: "0.6rem", color: "white", fontWeight: 900, lineHeight: 1 }}>
+                            {dayAssignments.length}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Stack>
                     <Stack
                       spacing={0.5}
                       sx={{
                         minWidth: 0,
+                        // On mobile, items are shown in the day drawer; hide list to keep cells clean.
+                        display: { xs: "none", sm: "flex" },
                         // Scroll inside the day cell when multiple items are scheduled.
                         maxHeight: { xs: 78, sm: 90 },
                         overflowY:
@@ -1106,6 +1155,7 @@ function DashboardContent() {
               );
             })}
           </Box>
+          </Box>{/* end horizontal scroll wrapper */}
         </Paper>
       </Box>
 
@@ -1225,7 +1275,26 @@ function DashboardContent() {
               </Typography>
             </Box>
 
-            {/* Schedule button */}
+            {/* Existing schedule badge */}
+            {mobilePreview.existingSchedule && (
+              <Box sx={{ px: 1, pt: 0.5 }}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.5,
+                    color: "primary.main",
+                    fontWeight: 700,
+                  }}
+                >
+                  <CalendarTodayIcon sx={{ fontSize: 11 }} />
+                  {mobilePreview.existingSchedule.dateISO} · {mobilePreview.existingSchedule.time}
+                </Typography>
+              </Box>
+            )}
+
+            {/* Schedule / Reschedule button */}
             <Box sx={{ p: 1 }}>
               <Button
                 fullWidth
@@ -1240,7 +1309,7 @@ function DashboardContent() {
                   fontSize: "0.72rem",
                 }}
               >
-                Schedule
+                {mobilePreview.existingSchedule ? "Reschedule" : "Schedule"}
               </Button>
             </Box>
           </Paper>
@@ -1249,6 +1318,8 @@ function DashboardContent() {
 
       <MobileScheduleDialog
         open={mobileScheduleOpen}
+        initialDate={mobilePreview?.existingSchedule?.dateISO}
+        initialTime={mobilePreview?.existingSchedule?.time}
         onCancel={() => setMobileScheduleOpen(false)}
         onConfirm={(dateISO, time) => {
           if (!mobilePreview || !userId) return;
@@ -1263,6 +1334,23 @@ function DashboardContent() {
               ? "Carousel scheduled to calendar."
               : "Content scheduled to calendar."
           );
+        }}
+      />
+
+      <MobileDayScheduleDrawer
+        open={Boolean(mobileDayPreview)}
+        onClose={() => setMobileDayPreview(null)}
+        dateISO={mobileDayPreview}
+        assignments={mobileDayAssignments}
+        itemsById={itemsById}
+        onRemove={(itemId) => {
+          if (!userId) return;
+          removeSchedule(itemId, userId);
+          refresh();
+          setToast("Content unscheduled. Returned to library.");
+          if (mobileDayAssignments.length <= 1) {
+            setMobileDayPreview(null);
+          }
         }}
       />
 
