@@ -1,12 +1,14 @@
 "use client";
 
 import type { ContentItem } from "@/lib/types";
+import { downloadMedia } from "@/lib/downloadMedia";
 import Image from "next/image";
 import {
   Box,
   Button,
   Card,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -39,24 +41,24 @@ export default function ContentCard({
   onMediaTypeChange,
 }: ContentCardProps) {
   const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [downloading, setDownloading] = React.useState(false);
 
   const hasMedia =
     (item.assetType === "video" && item.videoUrl) ||
     (item.assetType === "image" && item.imageUrl);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     const url = item.assetType === "video" ? item.videoUrl : item.imageUrl;
-    if (!url) return;
-    const ext = item.assetType === "video" ? "mp4" : "jpg";
-    const filename = `content-${item.id}.${ext}`;
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    if (!url || downloading) return;
+    const isVideo = item.assetType === "video";
+    const filename = `content-${item.id}.${isVideo ? "mp4" : "jpg"}`;
+    const mimeType = isVideo ? "video/mp4" : "image/jpeg";
+    try {
+      setDownloading(true);
+      await downloadMedia(url, filename, mimeType);
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -313,12 +315,13 @@ export default function ContentCard({
               </RadioGroup>
             )}
             <Button
-              startIcon={<DownloadIcon />}
+              startIcon={downloading ? <CircularProgress size={18} /> : <DownloadIcon />}
               onClick={handleDownload}
+              disabled={downloading}
               variant="outlined"
               sx={{ textTransform: "none", fontWeight: 700 }}
             >
-              Download {item.assetType === "video" ? "video" : "image"}
+              {downloading ? "Downloading…" : `Download ${item.assetType === "video" ? "video" : "image"}`}
             </Button>
           </DialogActions>
         )}

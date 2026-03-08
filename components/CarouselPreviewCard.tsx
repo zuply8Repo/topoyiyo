@@ -1,11 +1,13 @@
 "use client";
 
 import type { ContentItem } from "@/lib/types";
+import { downloadMedia } from "@/lib/downloadMedia";
 import {
   Box,
   Button,
   Card,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -36,23 +38,24 @@ export default function CarouselPreviewCard({
   const [editingCaption, setEditingCaption] = React.useState(false);
   const [captionDraft, setCaptionDraft] = React.useState("");
   const [savingCaption, setSavingCaption] = React.useState(false);
+  const [downloading, setDownloading] = React.useState(false);
 
   const caption = items[0]?.caption ?? "";
   const ids = items.map((i) => i.id);
 
-  const handleDownloadAll = () => {
-    items.forEach((item, index) => {
-      const url = item.imageUrl;
-      if (!url) return;
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `carousel-${index + 1}.jpg`;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    });
+  // Download images sequentially to avoid overwhelming mobile memory.
+  const handleDownloadAll = async () => {
+    if (downloading) return;
+    try {
+      setDownloading(true);
+      for (let index = 0; index < items.length; index++) {
+        const url = items[index].imageUrl;
+        if (!url) continue;
+        await downloadMedia(url, `carousel-${index + 1}.jpg`, "image/jpeg");
+      }
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const handleDeleteAll = () => {
@@ -282,13 +285,14 @@ export default function CarouselPreviewCard({
         }}
       >
         <Button
-          startIcon={<DownloadIcon />}
+          startIcon={downloading ? <CircularProgress size={16} /> : <DownloadIcon />}
           onClick={handleDownloadAll}
+          disabled={downloading}
           variant="outlined"
           size="small"
           sx={{ textTransform: "none", fontWeight: 700 }}
         >
-          Download All
+          {downloading ? "Downloading…" : "Download All"}
         </Button>
         <Button
           startIcon={<CollectionsIcon />}
@@ -364,12 +368,13 @@ export default function CarouselPreviewCard({
         </DialogContent>
         <DialogActions sx={{ px: 2, py: 1.5 }}>
           <Button
-            startIcon={<DownloadIcon />}
+            startIcon={downloading ? <CircularProgress size={18} /> : <DownloadIcon />}
             onClick={handleDownloadAll}
+            disabled={downloading}
             variant="outlined"
             sx={{ textTransform: "none", fontWeight: 700 }}
           >
-            Download All
+            {downloading ? "Downloading…" : "Download All"}
           </Button>
         </DialogActions>
       </Dialog>
