@@ -24,7 +24,6 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import MenuIcon from "@mui/icons-material/Menu";
 import CampaignIcon from "@mui/icons-material/Campaign";
 import RateReviewIcon from "@mui/icons-material/RateReview";
-import DashboardIcon from "@mui/icons-material/Dashboard";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import { usePathname, useRouter } from "next/navigation";
 import React from "react";
@@ -32,7 +31,6 @@ import React from "react";
 const nav = [
   { label: "New Campaign", href: "/prompt", icon: CampaignIcon },
   { label: "Review", href: "/review", icon: RateReviewIcon },
-  { label: "Dashboard", href: "/dashboard", icon: DashboardIcon },
   { label: "Billing", href: "/billing", icon: CreditCardIcon },
 ];
 

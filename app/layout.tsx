@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Content Beaver",
-  description: "UI-only social content scheduler (prompt → review → dashboard)",
+  description: "AI-powered social content creator (prompt → review)",
 };
 
 export default function RootLayout({

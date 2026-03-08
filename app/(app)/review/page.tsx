@@ -620,10 +620,10 @@ function ReviewPageContent() {
             </Typography>
             <Button
               variant="outlined"
-              onClick={() => router.push("/dashboard")}
+              onClick={() => router.push("/prompt")}
               sx={{ textTransform: "none", borderRadius: 999, fontWeight: 800 }}
             >
-              Go to Dashboard
+              New Campaign
             </Button>
           </Stack>
         </Box>

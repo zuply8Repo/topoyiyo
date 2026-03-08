@@ -76,23 +76,18 @@ function InstagramCallbackContent() {
       const returnTo = localStorage.getItem("instagram_oauth_return");
       localStorage.removeItem("instagram_oauth_return");
 
-      // Redirect back to dashboard after success
+      // Redirect back to review after success
       setTimeout(() => {
-        if (returnTo === "schedule_dialog") {
-          // Return to dashboard which will reopen the dialog
-          router.push("/dashboard?instagram_connected=true");
-        } else {
-          router.push("/dashboard");
-        }
+        router.push("/review");
       }, 2000);
     } catch (err: unknown) {
       console.error("Instagram OAuth callback error:", err);
       setError(err instanceof Error ? err.message : "Failed to connect Instagram account");
       setStatus("error");
 
-      // Redirect to dashboard after error
+      // Redirect to review after error
       setTimeout(() => {
-        router.push("/dashboard?instagram_error=true");
+        router.push("/review");
       }, 3000);
     }
   };
@@ -145,7 +140,7 @@ function InstagramCallbackContent() {
                   @{accountUsername} is now connected.
                 </Typography>
                 <Typography variant="body2" color="text.secondary" align="center">
-                  Redirecting back to dashboard...
+                  Redirecting back to review...
                 </Typography>
               </>
             )}
@@ -160,7 +155,7 @@ function InstagramCallbackContent() {
                   {error || "Failed to connect Instagram account"}
                 </Alert>
                 <Typography variant="body2" color="text.secondary" align="center">
-                  Redirecting back to dashboard...
+                  Redirecting back to review...
                 </Typography>
               </>
             )}
