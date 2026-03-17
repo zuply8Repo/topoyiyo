@@ -1,0 +1,45 @@
+0 verbose cli /opt/homebrew/Cellar/node/24.3.0/bin/node /opt/homebrew/bin/npm
+1 info using npm@11.4.2
+2 info using node@v24.3.0
+3 silly config load:file:/opt/homebrew/lib/node_modules/npm/npmrc
+4 warn Unknown env config "devdir". This will stop working in the next major version of npm.
+5 silly config load:file:/Users/victorsoplat/Documents/2025/aigenticAi/contentBeaver/content_to_social_ui/.npmrc
+6 silly config load:file:/Users/victorsoplat/.npmrc
+7 silly config load:file:/opt/homebrew/etc/npmrc
+8 verbose title npm install @clerk/ui
+9 verbose argv "install" "@clerk/ui" "--cache" "/Users/victorsoplat/Documents/2025/aigenticAi/contentBeaver/content_to_social_ui/.npm-cache"
+10 verbose logfile logs-max:10 dir:/Users/victorsoplat/Documents/2025/aigenticAi/contentBeaver/content_to_social_ui/.npm-cache/_logs/2026-03-17T12_50_15_602Z-
+11 verbose logfile /Users/victorsoplat/Documents/2025/aigenticAi/contentBeaver/content_to_social_ui/.npm-cache/_logs/2026-03-17T12_50_15_602Z-debug-0.log
+12 silly logfile done cleaning log files
+13 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+14 silly idealTree buildDeps
+15 silly fetch manifest @clerk/ui@*
+16 silly packumentCache full:https://registry.npmjs.org/@clerk%2fui cache-miss
+17 silly placeDep ROOT @clerk/ui@ OK for: content_to_social_ui@0.1.0 want: *
+18 verbose type system
+19 verbose stack FetchError: Invalid response body while trying to fetch https://registry.npmjs.org/@clerk%2fui: ENOSPC: no space left on device, write
+19 verbose stack     at /opt/homebrew/lib/node_modules/npm/node_modules/minipass-fetch/lib/body.js:170:15
+19 verbose stack     at async Response.json (/opt/homebrew/lib/node_modules/npm/node_modules/minipass-fetch/lib/body.js:75:17)
+19 verbose stack     at async RegistryFetcher.packument (/opt/homebrew/lib/node_modules/npm/node_modules/pacote/lib/registry.js:98:25)
+19 verbose stack     at async RegistryFetcher.manifest (/opt/homebrew/lib/node_modules/npm/node_modules/pacote/lib/registry.js:128:23)
+19 verbose stack     at async #fetchManifest (/opt/homebrew/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/build-ideal-tree.js:1213:20)
+19 verbose stack     at async #nodeFromEdge (/opt/homebrew/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/build-ideal-tree.js:1051:19)
+19 verbose stack     at async #buildDepStep (/opt/homebrew/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/build-ideal-tree.js:915:11)
+19 verbose stack     at async Arborist.buildIdealTree (/opt/homebrew/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/build-ideal-tree.js:182:7)
+19 verbose stack     at async Promise.all (index 1)
+19 verbose stack     at async Arborist.reify (/opt/homebrew/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:131:5)
+20 error code ENOSPC
+21 error syscall write
+22 error errno ENOSPC
+23 error nospc Invalid response body while trying to fetch https://registry.npmjs.org/@clerk%2fui: ENOSPC: no space left on device, write
+24 error nospc There appears to be insufficient space on your system to finish.
+24 error nospc Clear up some disk space and try again.
+25 silly unfinished npm timer reify 1773751815780
+26 silly unfinished npm timer reify:loadTrees 1773751815782
+27 verbose cwd /Users/victorsoplat/Documents/2025/aigenticAi/contentBeaver/content_to_social_ui
+28 verbose os Darwin 24.6.0
+29 verbose node v24.3.0
+30 verbose npm  v11.4.2
+31 verbose exit 1
+32 verbose code 1
+33 error A complete log of this run can be found in: /Users/victorsoplat/Documents/2025/aigenticAi/contentBeaver/content_to_social_ui/.npm-cache/_logs/2026-03-17T12_50_15_602Z-debug-0.log
