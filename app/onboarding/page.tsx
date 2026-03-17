@@ -32,7 +32,7 @@ import SmartDisplayOutlinedIcon from "@mui/icons-material/SmartDisplayOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import VideoCameraBackOutlinedIcon from "@mui/icons-material/VideoCameraBackOutlined";
 import WorkOutlineOutlinedIcon from "@mui/icons-material/WorkOutlineOutlined";
-import WorkspacesOutlineOutlinedIcon from "@mui/icons-material/WorkspacesOutlineOutlined";
+import HubOutlinedIcon from "@mui/icons-material/HubOutlined";
 import XIcon from "@mui/icons-material/X";
 import YouTubeIcon from "@mui/icons-material/YouTube";
 import {
@@ -114,13 +114,13 @@ const AI_EXPERIENCE_OPTIONS: OptionItem[] = [
     id: "advanced",
     label: "Advanced",
     description: "Consistent, brand-safe assets for client work",
-    icon: <WorkspacesOutlineOutlinedIcon />,
+    icon: <HubOutlinedIcon />,
   },
   {
     id: "expert",
     label: "Expert",
     description: "Full creative control with director tools",
-    icon: <WorkspacesOutlineOutlinedIcon />,
+    icon: <HubOutlinedIcon />,
   },
 ];
 
