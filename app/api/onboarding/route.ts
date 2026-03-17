@@ -1,13 +1,13 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import {
+  OnboardingAnswersEnvelope,
+  validateAndNormalizeOnboardingAnswers,
+} from "@/lib/onboarding";
 
 type OnboardingPayload = {
-  full_name: string;
-  industry: string;
-  business_name: string;
-  country: string;
-  address: string;
+  answers: unknown;
 };
 
 type HubSpotSearchResponse = {
@@ -22,12 +22,6 @@ function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing environment variable: ${name}`);
   return v;
-}
-
-function asNonEmptyString(v: unknown): string | null {
-  if (typeof v !== "string") return null;
-  const t = v.trim();
-  return t.length ? t : null;
 }
 
 async function bestEffortHubspotUpsertContact(params: {
@@ -111,18 +105,9 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-
-  const full_name = asNonEmptyString(body.full_name);
-  const industry = asNonEmptyString(body.industry);
-  const business_name = asNonEmptyString(body.business_name);
-  const country = asNonEmptyString(body.country);
-  const address = asNonEmptyString(body.address);
-
-  if (!full_name || !industry || !business_name || !country || !address) {
-    return NextResponse.json(
-      { error: "Missing required onboarding fields" },
-      { status: 400 }
-    );
+  const normalizedAnswers = validateAndNormalizeOnboardingAnswers(body.answers);
+  if (!normalizedAnswers.ok) {
+    return NextResponse.json({ error: normalizedAnswers.error }, { status: 400 });
   }
 
   // Pull email from Clerk (don’t trust client input).
@@ -147,14 +132,39 @@ export async function POST(req: Request) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  const fullNameFromClerk = `${user.firstName || ""} ${user.lastName || ""}`
+    .trim()
+    .replace(/\s+/g, " ");
+  const fallbackFullName = fullNameFromClerk || email.split("@")[0] || "User";
+
+  const { data: existingProfile } = await supabase
+    .from("user_profiles")
+    .select("full_name,industry,business_name,country,address")
+    .eq("auth_user_id", userId)
+    .maybeSingle();
+
+  const profileIndustry = existingProfile?.industry ?? "";
+  const profileBusinessName = existingProfile?.business_name ?? "";
+  const profileCountry = existingProfile?.country ?? "";
+  const profileAddress = existingProfile?.address ?? "";
+  const profileFullName = existingProfile?.full_name || fallbackFullName;
+
+  const answersEnvelope: OnboardingAnswersEnvelope = {
+    version: 1,
+    submittedAt: new Date().toISOString(),
+    answers: normalizedAnswers.value,
+  };
+
   const upsertPayload = {
     auth_user_id: userId,
     email,
-    full_name,
-    industry,
-    business_name,
-    country,
-    address,
+    full_name: profileFullName,
+    industry: profileIndustry,
+    business_name: profileBusinessName,
+    country: profileCountry,
+    address: profileAddress,
+    audience_onboarding_answers: answersEnvelope,
+    audience_onboarding_completed_at: answersEnvelope.submittedAt,
   };
 
   const { error: upsertError } = await supabase
@@ -192,11 +202,11 @@ export async function POST(req: Request) {
       const result = await bestEffortHubspotUpsertContact({
         token: hubspotToken,
         email,
-        fullName: full_name,
-        industry,
-        businessName: business_name,
-        country,
-        address,
+        fullName: profileFullName,
+        industry: profileIndustry,
+        businessName: profileBusinessName,
+        country: profileCountry,
+        address: profileAddress,
       });
       hubspotContactId = result?.contactId;
     } catch {
