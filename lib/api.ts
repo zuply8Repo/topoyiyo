@@ -82,7 +82,7 @@ type BackendUserContentResponse = {
 // Campaign Generation Types
 // ============================================================================
 
-export type VideoGenerationModel = "sora2" | "veo";
+export type VideoGenerationModel = "veo";
 
 export interface CreateCampaignResponse {
   success: boolean;
@@ -127,14 +127,14 @@ export interface JobStatus {
  * Create a new campaign generation job
  *
  * @param briefText - Campaign brief text
- * @param videoModel - Video generation model to use (sora2 or veo)
+ * @param videoModel - Video generation model to use
  * @param token - Clerk session token (optional, will be required for authenticated requests)
  * @returns Campaign creation response with job_id
  * @throws Error if request fails
  */
 export async function createCampaign(
   briefText: string,
-  videoModel: VideoGenerationModel = "sora2",
+  videoModel: VideoGenerationModel = "veo",
   token?: string | null
 ): Promise<CreateCampaignResponse> {
   const response = await fetch(`${API_BASE_URL}/campaigns/generate`, {
