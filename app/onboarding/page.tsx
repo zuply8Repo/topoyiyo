@@ -388,7 +388,7 @@ function OnboardingPageContent() {
 
   const stepContent = [
     {
-      title: "How do you plan to use Higgsfield?",
+      title: "How do you plan to use Yiyo Studio?",
       subtitle: "We'll tailor features and AI tools to your goals",
       content: renderSingleChoice(
         PRIMARY_USE_OPTIONS,
@@ -479,13 +479,16 @@ function OnboardingPageContent() {
   const currentStep = stepContent[step];
 
   return (
-    <Container maxWidth="lg" sx={{ py: { xs: 3, sm: 5 } }}>
+    <Container
+      maxWidth="lg"
+      sx={{ py: { xs: 3, sm: 5 }, minHeight: "100vh", bgcolor: "#000" }}
+    >
       <Paper
         variant="outlined"
         sx={{
           borderRadius: 4,
           p: { xs: 2.5, sm: 4 },
-          bgcolor: "#090c13",
+          bgcolor: "#000",
           borderColor: alpha("#ffffff", 0.08),
           color: "#fff",
         }}
