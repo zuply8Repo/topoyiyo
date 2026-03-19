@@ -532,72 +532,91 @@ function ReviewPageContent() {
       />
 
       {/* Prompt Review Section */}
-      {campaign && prompts.length > 0 && (
-        <Paper
-          elevation={0}
-          sx={{
-            border: "1px dashed",
-            borderColor: "divider",
-            borderRadius: 4,
-            p: 3,
-            bgcolor: "background.paper",
-          }}
-        >
-          <Stack spacing={2}>
-            <Stack
-              direction="row"
-              spacing={2}
-              alignItems="center"
-              justifyContent="space-between"
-            >
-              <Box>
-                <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                  Prompt to review
-                </Typography>
-                <Typography color="text.secondary" variant="body2">
-                  {prompts.filter((p) => p.status !== "approved").length > 0
-                    ? `This campaign has ${
-                        prompts.filter((p) => p.status !== "approved").length
-                      } prompts waiting for your review. Prompt generation may still be in progress.`
-                    : "All prompts have been approved and are generating content."}
-                </Typography>
-              </Box>
-              {prompts.filter((p) => p.status !== "approved").length > 0 && (
-                <Chip
-                  label={`${
-                    prompts.filter((p) => p.status !== "approved").length
-                  } pending`}
-                  color="warning"
-                  sx={{ fontWeight: "bold" }}
-                />
-              )}
+      {campaign && prompts.length > 0 && (() => {
+        const nonApproved = prompts.filter((p) => p.status !== "approved");
+        const failedPrompts = prompts.filter((p) => p.status === "failed");
+        const pendingPrompts = nonApproved.filter((p) => p.status !== "failed");
+        const hasNonApproved = nonApproved.length > 0;
+        const hasFailed = failedPrompts.length > 0;
+
+        return (
+          <Paper
+            elevation={0}
+            sx={{
+              border: "1px dashed",
+              borderColor: hasFailed ? "error.main" : "divider",
+              borderRadius: 4,
+              p: 3,
+              bgcolor: "background.paper",
+            }}
+          >
+            <Stack spacing={2}>
+              <Stack
+                direction="row"
+                spacing={2}
+                alignItems="center"
+                justifyContent="space-between"
+                flexWrap="wrap"
+              >
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                    Prompts to review
+                  </Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    {!hasNonApproved
+                      ? "All prompts have been approved and are generating content."
+                      : hasFailed
+                      ? `${failedPrompts.length} generation(s) failed — credits refunded. Edit the prompt and retry.${
+                          pendingPrompts.length > 0
+                            ? ` ${pendingPrompts.length} more awaiting approval.`
+                            : ""
+                        }`
+                      : `${pendingPrompts.length} prompt(s) waiting for your review. Generation may still be in progress.`}
+                  </Typography>
+                </Box>
+                <Stack direction="row" spacing={1} flexWrap="wrap">
+                  {pendingPrompts.length > 0 && (
+                    <Chip
+                      label={`${pendingPrompts.length} pending`}
+                      color="warning"
+                      sx={{ fontWeight: "bold" }}
+                    />
+                  )}
+                  {hasFailed && (
+                    <Chip
+                      label={`${failedPrompts.length} failed`}
+                      color="error"
+                      sx={{ fontWeight: "bold" }}
+                    />
+                  )}
+                </Stack>
+              </Stack>
+              <Button
+                variant="outlined"
+                onClick={() => setPromptModalOpen(true)}
+                startIcon={<RateReviewIcon />}
+                disabled={loadingPrompts}
+                color={hasFailed ? "error" : "primary"}
+                sx={{
+                  textTransform: "none",
+                  borderRadius: 2,
+                  fontWeight: 800,
+                  alignSelf: "flex-start",
+                }}
+              >
+                {loadingPrompts ? (
+                  <>
+                    <CircularProgress size={20} sx={{ mr: 1 }} />
+                    Loading...
+                  </>
+                ) : (
+                  `Review prompts (${nonApproved.length})`
+                )}
+              </Button>
             </Stack>
-            <Button
-              variant="outlined"
-              onClick={() => setPromptModalOpen(true)}
-              startIcon={<RateReviewIcon />}
-              disabled={loadingPrompts}
-              sx={{
-                textTransform: "none",
-                borderRadius: 2,
-                fontWeight: 800,
-                alignSelf: "flex-start",
-              }}
-            >
-              {loadingPrompts ? (
-                <>
-                  <CircularProgress size={20} sx={{ mr: 1 }} />
-                  Loading...
-                </>
-              ) : (
-                `Review prompt (${
-                  prompts.filter((p) => p.status !== "approved").length
-                })`
-              )}
-            </Button>
-          </Stack>
-        </Paper>
-      )}
+          </Paper>
+        );
+      })()}
 
       {campaign && items.length === 0 ? (
         <Box

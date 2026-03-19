@@ -2,6 +2,7 @@
 
 import React from 'react';
 import {
+  Alert,
   Card,
   CardContent,
   CardActions,
@@ -14,6 +15,8 @@ import {
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import EditIcon from '@mui/icons-material/Edit';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import ReplayIcon from '@mui/icons-material/Replay';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VideoLibraryIcon from '@mui/icons-material/VideoLibrary';
 import ImageIcon from '@mui/icons-material/Image';
@@ -25,7 +28,7 @@ interface PromptCardProps {
   assetId: string;
   promptType: 'video' | 'story_image' | 'carousel_image';
   fullPrompt: string;
-  status: 'pending' | 'approved' | 'rejected' | 'edited';
+  status: 'pending' | 'approved' | 'rejected' | 'edited' | 'failed';
   engine: 'veo' | 'nano_banana';
   metadata?: Record<string, unknown>;
   onApprove: (promptId: string) => void;
@@ -61,6 +64,12 @@ const PromptCard: React.FC<PromptCardProps> = ({
     }
   };
 
+  // Derive generation error from metadata (set by backend when VEO fails)
+  const generationError = metadata?.generation_error as string | undefined;
+  const failureType = metadata?.failure_type as string | undefined;
+
+  const isContentFiltered = failureType === 'content_filtered';
+
   // Get color based on status
   const getStatusColor = () => {
     switch (status) {
@@ -68,6 +77,8 @@ const PromptCard: React.FC<PromptCardProps> = ({
         return '#4CAF50';
       case 'rejected':
         return '#F44336';
+      case 'failed':
+        return '#D32F2F';
       case 'edited':
         return '#FF9800';
       case 'pending':
@@ -177,6 +188,31 @@ const PromptCard: React.FC<PromptCardProps> = ({
           </Typography>
         </Paper>
 
+        {/* Generation failure banner */}
+        {status === 'failed' && (
+          <Alert
+            severity="error"
+            icon={<ErrorOutlineIcon fontSize="small" />}
+            sx={{ mt: 1.5, borderRadius: 1, fontSize: '0.78rem' }}
+          >
+            <Typography variant="caption" component="div" sx={{ fontWeight: 700, mb: 0.25 }}>
+              {isContentFiltered
+                ? 'Blocked by AI Safety Filter'
+                : 'Generation Failed'}
+            </Typography>
+            <Typography variant="caption" component="div" sx={{ wordBreak: 'break-word' }}>
+              {generationError
+                ? generationError
+                : 'An error occurred during generation. Credits have been refunded — edit your prompt and try again.'}
+            </Typography>
+            {isContentFiltered && (
+              <Typography variant="caption" component="div" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                Tip: Remove references to specific people, locations, or sensitive scenes.
+              </Typography>
+            )}
+          </Alert>
+        )}
+
         {/* Metadata (optional) */}
         {metadata && Object.keys(metadata).length > 0 && (
           <Box sx={{ mt: 2 }}>
@@ -231,23 +267,30 @@ const PromptCard: React.FC<PromptCardProps> = ({
           </IconButton>
         </Tooltip>
 
-        <Tooltip title="Approve">
-          <IconButton
-            color="success"
-            onClick={() => onApprove(promptId)}
-            disabled={status === 'approved' || isApproving}
-            sx={{
-              '&:hover': {
-                backgroundColor: 'rgba(76, 175, 80, 0.1)',
-              },
-            }}
-          >
-            {isApproving ? (
-              <CircularProgress size={24} color="inherit" />
-            ) : (
-              <CheckCircleIcon />
-            )}
-          </IconButton>
+        <Tooltip title={status === 'failed' ? 'Retry Generation' : 'Approve'}>
+          <span>
+            <IconButton
+              color={status === 'failed' ? 'warning' : 'success'}
+              onClick={() => onApprove(promptId)}
+              disabled={status === 'approved' || isApproving}
+              sx={{
+                '&:hover': {
+                  backgroundColor:
+                    status === 'failed'
+                      ? 'rgba(237, 108, 2, 0.1)'
+                      : 'rgba(76, 175, 80, 0.1)',
+                },
+              }}
+            >
+              {isApproving ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : status === 'failed' ? (
+                <ReplayIcon />
+              ) : (
+                <CheckCircleIcon />
+              )}
+            </IconButton>
+          </span>
         </Tooltip>
 
         <Tooltip title="Edit">

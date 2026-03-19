@@ -54,7 +54,7 @@ export type ScheduleAssignment = {
 // Prompt Management Types
 // ============================================================================
 
-export type PromptStatus = "pending" | "approved" | "rejected" | "edited";
+export type PromptStatus = "pending" | "approved" | "rejected" | "edited" | "failed";
 export type GenerationEngine = "veo" | "nano_banana";
 export type PromptType = "video" | "story_image" | "carousel_image";
 

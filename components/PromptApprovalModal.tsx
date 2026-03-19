@@ -15,6 +15,7 @@ import {
   Fade,
   LinearProgress,
 } from '@mui/material';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PromptCard from './PromptCard';
@@ -67,7 +68,7 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
   const [editingPrompt, setEditingPrompt] = useState<PromptResponse | null>(null);
   const [reviewingPrompt, setReviewingPrompt] = useState<PromptResponse | null>(null);
 
-  // Filter prompts by type (only show pending/edited prompts)
+  // Filter prompts by type (show all non-approved, including failed)
   const videoPrompts = prompts.filter(
     (p) => p.prompt_type === 'video' && p.status !== 'approved'
   );
@@ -77,6 +78,10 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
   const carouselImagePrompts = prompts.filter(
     (p) => p.prompt_type === 'carousel_image' && p.status !== 'approved'
   );
+
+  const videoFailedCount = videoPrompts.filter((p) => p.status === 'failed').length;
+  const storyFailedCount = storyImagePrompts.filter((p) => p.status === 'failed').length;
+  const carouselFailedCount = carouselImagePrompts.filter((p) => p.status === 'failed').length;
 
   const pendingCount =
     videoPrompts.length + storyImagePrompts.length + carouselImagePrompts.length;
@@ -168,6 +173,20 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
           />
         </Box>
 
+        {/* Failed prompts summary alert */}
+        {(videoFailedCount + storyFailedCount + carouselFailedCount) > 0 && (
+          <Box sx={{ px: 3, pt: 1.5 }}>
+            <Alert severity="error" icon={<ErrorOutlineIcon />} sx={{ borderRadius: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                {videoFailedCount + storyFailedCount + carouselFailedCount} generation(s) failed — credits have been refunded.
+              </Typography>
+              <Typography variant="caption">
+                Edit the prompt to fix the issue, then click Retry to regenerate.
+              </Typography>
+            </Alert>
+          </Box>
+        )}
+
         {/* Content */}
         <DialogContent sx={{ pt: 2 }}>
           {pendingCount > 0 ? (
@@ -180,7 +199,19 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
                   aria-label="prompt tabs"
                 >
                   <Tab
-                    label={`Story Videos (${videoPrompts.length})`}
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                        {`Story Videos (${videoPrompts.length})`}
+                        {videoFailedCount > 0 && (
+                          <Chip
+                            label={`${videoFailedCount} failed`}
+                            size="small"
+                            color="error"
+                            sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700 }}
+                          />
+                        )}
+                      </Box>
+                    }
                     icon={
                       videoPrompts.length === 0 ? (
                         <CheckCircleIcon color="success" fontSize="small" />
@@ -189,7 +220,19 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
                     iconPosition="end"
                   />
                   <Tab
-                    label={`Story Images (${storyImagePrompts.length})`}
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                        {`Story Images (${storyImagePrompts.length})`}
+                        {storyFailedCount > 0 && (
+                          <Chip
+                            label={`${storyFailedCount} failed`}
+                            size="small"
+                            color="error"
+                            sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700 }}
+                          />
+                        )}
+                      </Box>
+                    }
                     icon={
                       storyImagePrompts.length === 0 ? (
                         <CheckCircleIcon color="success" fontSize="small" />
@@ -198,7 +241,19 @@ const PromptApprovalModal: React.FC<PromptApprovalModalProps> = ({
                     iconPosition="end"
                   />
                   <Tab
-                    label={`Carousel Images (${carouselImagePrompts.length})`}
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                        {`Carousel Images (${carouselImagePrompts.length})`}
+                        {carouselFailedCount > 0 && (
+                          <Chip
+                            label={`${carouselFailedCount} failed`}
+                            size="small"
+                            color="error"
+                            sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700 }}
+                          />
+                        )}
+                      </Box>
+                    }
                     icon={
                       carouselImagePrompts.length === 0 ? (
                         <CheckCircleIcon color="success" fontSize="small" />
