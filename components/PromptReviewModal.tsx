@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import {
+  Alert,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -18,6 +19,8 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import EditIcon from '@mui/icons-material/Edit';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import ReplayIcon from '@mui/icons-material/Replay';
 import CancelIcon from '@mui/icons-material/Cancel';
 import VideoLibraryIcon from '@mui/icons-material/VideoLibrary';
 import ImageIcon from '@mui/icons-material/Image';
@@ -33,7 +36,7 @@ interface PromptReviewModalProps {
   assetId: string;
   promptType: 'video' | 'story_image' | 'carousel_image';
   fullPrompt: string;
-  status: 'pending' | 'approved' | 'rejected' | 'edited';
+  status: 'pending' | 'approved' | 'rejected' | 'edited' | 'failed';
   engine: 'veo' | 'nano_banana';
   metadata?: Record<string, unknown>;
   onApprove: (promptId: string) => void;
@@ -117,12 +120,17 @@ const PromptReviewModal: React.FC<PromptReviewModalProps> = ({
     return engine === 'veo' ? 'VEO' : 'Nano Banana';
   };
 
+  const generationError = metadata?.generation_error as string | undefined;
+  const failureType = metadata?.failure_type as string | undefined;
+  const isContentFiltered = failureType === 'content_filtered';
+
   // Get status color
   const getStatusColor = () => {
     switch (status) {
       case 'approved':
         return 'success';
       case 'rejected':
+      case 'failed':
         return 'error';
       case 'edited':
         return 'warning';
@@ -227,6 +235,30 @@ const PromptReviewModal: React.FC<PromptReviewModalProps> = ({
         </Box>
 
         <Divider sx={{ mb: 3 }} />
+
+        {/* Generation failure banner */}
+        {status === 'failed' && (
+          <Alert
+            severity="error"
+            icon={<ErrorOutlineIcon />}
+            sx={{ mb: 3, borderRadius: 1 }}
+          >
+            <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+              {isContentFiltered
+                ? 'Blocked by AI Safety Filter — credits refunded'
+                : 'Generation Failed — credits refunded'}
+            </Typography>
+            <Typography variant="body2">
+              {generationError ||
+                'An error occurred during generation. Edit your prompt and retry.'}
+            </Typography>
+            {isContentFiltered && (
+              <Typography variant="caption" sx={{ mt: 0.5, display: 'block', fontStyle: 'italic' }}>
+                Tip: Remove references to specific people, locations, or sensitive scenes, then retry.
+              </Typography>
+            )}
+          </Alert>
+        )}
 
         {/* Prompt Content */}
         <Box sx={{ mb: 2 }}>
@@ -435,15 +467,13 @@ const PromptReviewModal: React.FC<PromptReviewModalProps> = ({
           </Button>
           <Button
             variant="contained"
-            color="success"
-            startIcon={<CheckCircleIcon />}
+            color={status === 'failed' ? 'warning' : 'success'}
+            startIcon={status === 'failed' ? <ReplayIcon /> : <CheckCircleIcon />}
             onClick={handleApprove}
             disabled={status === 'approved'}
-            sx={{
-              minWidth: 120,
-            }}
+            sx={{ minWidth: 120 }}
           >
-            Approve
+            {status === 'failed' ? 'Retry' : 'Approve'}
           </Button>
         </Box>
       </DialogActions>
