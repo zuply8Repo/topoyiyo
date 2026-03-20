@@ -12,6 +12,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  turbopack: {},
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

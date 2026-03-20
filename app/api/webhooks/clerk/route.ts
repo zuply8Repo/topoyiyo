@@ -86,13 +86,9 @@ export async function POST(req: Request) {
           {
             auth_user_id: id,
             email: primaryEmail,
-            full_name: first_name && last_name 
+            full_name: first_name && last_name
               ? `${first_name} ${last_name}`.trim()
               : first_name || last_name || primaryEmail.split("@")[0],
-            industry: "", // Will be filled during onboarding
-            business_name: "", // Will be filled during onboarding
-            country: "", // Will be filled during onboarding
-            address: "", // Will be filled during onboarding
           },
           { onConflict: "auth_user_id" }
         );
