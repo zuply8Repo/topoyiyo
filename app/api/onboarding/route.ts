@@ -155,6 +155,13 @@ export async function POST(req: Request) {
     .upsert(upsertPayload, { onConflict: "auth_user_id" });
 
   if (upsertError) {
+    console.error(`[onboarding] upsert failed for user ${userId}:`, {
+      message: upsertError.message,
+      code: upsertError.code,
+      details: upsertError.details,
+      hint: upsertError.hint,
+      email,
+    });
     return NextResponse.json(
       { error: `Failed to save profile: ${upsertError.message}` },
       { status: 500 }
