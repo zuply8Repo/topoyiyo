@@ -25,11 +25,13 @@ import MenuIcon from "@mui/icons-material/Menu";
 import CampaignIcon from "@mui/icons-material/Campaign";
 import RateReviewIcon from "@mui/icons-material/RateReview";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
+import VideoLibraryIcon from "@mui/icons-material/VideoLibrary";
 import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 
 const nav = [
   { label: "New Campaign", href: "/prompt", icon: CampaignIcon },
+  { label: "Studio V2", href: "/studio-v2", icon: VideoLibraryIcon },
   { label: "Review", href: "/review", icon: RateReviewIcon },
   { label: "Billing", href: "/billing", icon: CreditCardIcon },
 ];

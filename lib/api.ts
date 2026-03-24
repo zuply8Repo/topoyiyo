@@ -1007,3 +1007,156 @@ export async function createCheckoutSession(
   const data = (await response.json()) as { session_url: string };
   return data.session_url;
 }
+
+// ============================================================================
+// Studio V2 API
+// ============================================================================
+
+export interface StudioV2FieldOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface StudioV2FieldSchema {
+  id: string;
+  label: string;
+  type: "text" | "textarea" | "number" | "select" | "boolean" | "image" | "image_array" | "file";
+  required: boolean;
+  default?: unknown;
+  group: string;
+  help_text?: string;
+  options?: StudioV2FieldOption[];
+  min?: number;
+  max?: number;
+  placeholder?: string;
+  visible_when?: Record<string, unknown>;
+  max_items?: number;
+}
+
+export interface StudioV2ModelSchema {
+  model_id: string;
+  label: string;
+  media_type: "video" | "image";
+  description?: string;
+  fields: StudioV2FieldSchema[];
+}
+
+export interface StudioV2ModelSummary {
+  model_id: string;
+  label: string;
+  media_type: "video" | "image";
+  description?: string;
+}
+
+export interface StudioV2VeoGenerateRequest {
+  prompt: string;
+  negative_prompt?: string;
+  model_variant?: string;
+  first_frame_image_base64?: string;
+  last_frame_image_base64?: string;
+  reference_images_base64?: string[];
+  aspect_ratio?: "16:9" | "9:16";
+  duration_seconds?: 4 | 6 | 8;
+  resolution?: "720p" | "1080p" | "4k";
+  sample_count?: number;
+  seed?: number;
+  person_generation?: "allow_adult" | "allow_all" | "disallow";
+  generate_audio?: boolean;
+}
+
+export interface StudioV2VeoGenerateResponse {
+  success: boolean;
+  job_id: string;
+  message: string;
+}
+
+export interface StudioV2JobStatus {
+  job_id: string;
+  status: "pending" | "processing" | "generating" | "completed" | "failed";
+  progress_percentage: number;
+  error_message?: string;
+  video_url?: string;
+  created_at?: string;
+  completed_at?: string;
+}
+
+export async function getStudioV2Models(
+  token?: string | null
+): Promise<StudioV2ModelSummary[]> {
+  const response = await fetch(`${API_BASE_URL}/studio-v2/models`, {
+    method: "GET",
+    headers: await getAuthHeaders(token),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to fetch Studio V2 models");
+  }
+  return response.json();
+}
+
+export async function getStudioV2ModelSchema(
+  modelId: string,
+  token?: string | null
+): Promise<StudioV2ModelSchema> {
+  const response = await fetch(`${API_BASE_URL}/studio-v2/models/${modelId}`, {
+    method: "GET",
+    headers: await getAuthHeaders(token),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to fetch model schema");
+  }
+  return response.json();
+}
+
+export async function generateStudioV2Veo(
+  body: StudioV2VeoGenerateRequest,
+  token?: string | null
+): Promise<StudioV2VeoGenerateResponse> {
+  const response = await fetch(`${API_BASE_URL}/studio-v2/generate/veo`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to start Veo generation");
+  }
+  return response.json();
+}
+
+export async function getStudioV2JobStatus(
+  jobId: string,
+  token?: string | null
+): Promise<StudioV2JobStatus> {
+  const response = await fetch(`${API_BASE_URL}/studio-v2/jobs/${jobId}`, {
+    method: "GET",
+    headers: await getAuthHeaders(token),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to fetch job status");
+  }
+  return response.json();
+}
+
+/**
+ * Download the generated video for a completed Studio V2 job.
+ *
+ * @param jobId - Full Veo operation name (jobs/{job_id:path} uses this as path, but we pass as query param)
+ * @param token - Clerk session token
+ * @returns Video content as a Blob (video/mp4), ready for URL.createObjectURL()
+ */
+export async function downloadStudioV2JobVideo(
+  jobId: string,
+  token?: string | null
+): Promise<Blob> {
+  const response = await fetch(
+    `${API_BASE_URL}/studio-v2/video?job_id=${encodeURIComponent(jobId)}`,
+    {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }
+  );
+  if (!response.ok) {
+    await throwApiError(response, "Failed to download video");
+  }
+  return response.blob();
+}
