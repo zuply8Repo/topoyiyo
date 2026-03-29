@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Box,
@@ -16,11 +16,14 @@ import SchemaFieldRenderer from "@/components/studio-v2/SchemaFieldRenderer";
 import MediaInputPanel from "@/components/studio-v2/MediaInputPanel";
 import GenerationSettingsPanel from "@/components/studio-v2/GenerationSettingsPanel";
 import OutputsPanel from "@/components/studio-v2/OutputsPanel";
+import PromptField from "@/components/studio-v2/PromptField";
+import type { StudioElement } from "@/components/studio-v2/ElementsPanel";
 import {
   ApiError,
   getStudioV2Models,
   getStudioV2ModelSchema,
   generateStudioV2Veo,
+  generateStudioV2Kling,
   getStudioV2JobStatus,
   downloadStudioV2JobVideo,
 } from "@/lib/api";
@@ -28,12 +31,52 @@ import type {
   StudioV2ModelSchema,
   StudioV2ModelSummary,
   StudioV2VeoGenerateRequest,
+  StudioV2KlingGenerateRequest,
 } from "@/lib/api";
 
 const POLL_INTERVAL_MS = 5000;
+const LS_KEY_PREFIX = "studio-v2-jobs";
 const EXAMPLE_VIDEO_URL =
   "https://drdhjfxoqaxcjolegdya.supabase.co/storage/v1/object/public/generated-videos/videos/6940b42f-6521-40af-b031-5539e3c4b6e6/story_video_3_pgzgndh9m768.mp4";
-const LS_KEY_PREFIX = "studio-v2-jobs";
+
+/** Static model entries always shown in the model selector. */
+const STATIC_MODELS: StudioV2ModelSummary[] = [
+  {
+    model_id: "veo-3.1-generate-001",
+    label: "Veo 3.1",
+    media_type: "video",
+    description: "Veo 3.1 Generate 001 — high-quality video generation",
+  },
+  {
+    model_id: "veo-3.1-fast-generate-001",
+    label: "Veo 3.1 Fast",
+    media_type: "video",
+    description: "Veo 3.1 Fast Generate 001 — faster, lighter generation",
+  },
+  {
+    model_id: "kling-v2-6",
+    label: "Kling v2.6",
+    media_type: "video",
+    description: "Kling AI v2.6 — high-fidelity video with native audio and Motion Transfer",
+  },
+];
+
+/** Maps UI model IDs to the Vertex AI model_variant string (Veo only). */
+const MODEL_VARIANT_MAP: Record<string, string> = {
+  veo: "veo-3.1-generate-001",
+  "veo-3.1-generate-001": "veo-3.1-generate-001",
+  "veo-3.1-fast-generate-001": "veo-3.1-fast-generate-001",
+};
+
+/** Kling model IDs — these use the Kling generation path. */
+const KLING_MODEL_IDS = new Set(["kling-v2-6"]);
+
+/** Schema API key to use — Veo variants share "veo", Kling uses "kling". */
+function resolveSchemaModelId(modelId: string): string {
+  if (modelId in MODEL_VARIANT_MAP) return "veo";
+  if (KLING_MODEL_IDS.has(modelId)) return "kling";
+  return modelId;
+}
 
 export interface SavedJob {
   job_id: string;
@@ -52,25 +95,29 @@ function buildDefaultFormState(schema: StudioV2ModelSchema): Record<string, unkn
 }
 
 function formStateToVeoRequest(
-  formState: Record<string, unknown>
+  formState: Record<string, unknown>,
+  selectedModelId: string | null
 ): StudioV2VeoGenerateRequest {
+  const modelVariant =
+    selectedModelId && MODEL_VARIANT_MAP[selectedModelId]
+      ? MODEL_VARIANT_MAP[selectedModelId]
+      : formState.model_variant
+        ? String(formState.model_variant)
+        : "veo-3.1-generate-001";
   return {
     prompt: String(formState.prompt ?? ""),
     negative_prompt: formState.negative_prompt
       ? String(formState.negative_prompt)
       : undefined,
-    model_variant: formState.model_variant
-      ? String(formState.model_variant)
-      : "veo-3.1-generate-001",
+    model_variant: modelVariant,
     first_frame_image_base64: formState.first_frame_image
       ? String(formState.first_frame_image)
       : undefined,
     last_frame_image_base64: formState.last_frame_image
       ? String(formState.last_frame_image)
       : undefined,
-    reference_images_base64: Array.isArray(formState.reference_images)
-      ? (formState.reference_images as string[]).filter(Boolean)
-      : undefined,
+    // reference_images_base64 is built from @mentioned Elements at submit time
+    reference_images_base64: undefined,
     aspect_ratio: (formState.aspect_ratio as "16:9" | "9:16") ?? "9:16",
     duration_seconds: (Number(formState.duration_seconds) || 8) as 4 | 6 | 8,
     resolution: (formState.resolution as "720p" | "1080p" | "4k") ?? "720p",
@@ -83,6 +130,36 @@ function formStateToVeoRequest(
       (formState.person_generation as "allow_adult" | "allow_all" | "disallow") ??
       "allow_all",
     generate_audio: Boolean(formState.generate_audio ?? true),
+  };
+}
+
+function formStateToKlingRequest(
+  formState: Record<string, unknown>,
+): StudioV2KlingGenerateRequest {
+  return {
+    prompt: String(formState.prompt ?? ""),
+    negative_prompt: formState.negative_prompt
+      ? String(formState.negative_prompt)
+      : undefined,
+    generation_mode:
+      (formState.generation_mode as "text_to_video" | "image_to_video" | "motion_transfer") ??
+      "text_to_video",
+    first_frame_image_base64: formState.first_frame_image
+      ? String(formState.first_frame_image)
+      : undefined,
+    last_frame_image_base64: formState.last_frame_image
+      ? String(formState.last_frame_image)
+      : undefined,
+    character_image_base64: formState.character_image
+      ? String(formState.character_image)
+      : undefined,
+    motion_reference_video_base64: formState.motion_reference_video
+      ? String(formState.motion_reference_video)
+      : undefined,
+    aspect_ratio: (formState.aspect_ratio as "16:9" | "9:16" | "1:1") ?? "16:9",
+    duration: Number(formState.duration_seconds) || 5,
+    mode: (formState.mode as "std" | "pro") ?? "std",
+    generate_audio: Boolean(formState.generate_audio ?? false),
   };
 }
 
@@ -103,6 +180,8 @@ export default function StudioV2Page() {
   const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string | null>(null);
   const [isDownloadingVideo, setIsDownloadingVideo] = useState(false);
   const [savedJobs, setSavedJobs] = useState<SavedJob[]>([]);
+  const [enhancePrompt, setEnhancePrompt] = useState(false);
+  const [elements, setElements] = useState<StudioElement[]>([]);
 
   // Load past jobs from localStorage on mount
   useEffect(() => {
@@ -115,22 +194,55 @@ export default function StudioV2Page() {
     }
   }, [userId]);
 
-  // Fetch available models
+  // Load elements from localStorage
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const raw = localStorage.getItem(`studio-v2-elements-${userId}`);
+      if (raw) setElements(JSON.parse(raw));
+    } catch {
+      // ignore parse errors
+    }
+  }, [userId]);
+
+  const handleElementsChange = useCallback(
+    (updated: StudioElement[]) => {
+      setElements(updated);
+      if (userId) {
+        try {
+          localStorage.setItem(`studio-v2-elements-${userId}`, JSON.stringify(updated));
+        } catch {
+          // ignore storage errors
+        }
+      }
+    },
+    [userId],
+  );
+
+  // Fetch available models and merge with static entries
   useEffect(() => {
     if (!isLoaded || !userId) return;
     let cancelled = false;
     (async () => {
       try {
         const token = await getToken();
-        const list = await getStudioV2Models(token ?? undefined);
+        const apiList = await getStudioV2Models(token ?? undefined);
         if (!cancelled) {
-          setModels(list);
-          if (list.length > 0 && !selectedModelId) {
-            setSelectedModelId(list[0].model_id);
+          const apiIds = new Set(apiList.map((m) => m.model_id));
+          const merged = [
+            ...apiList,
+            ...STATIC_MODELS.filter((m) => !apiIds.has(m.model_id)),
+          ];
+          setModels(merged);
+          if (merged.length > 0 && !selectedModelId) {
+            setSelectedModelId(merged[0].model_id);
           }
         }
       } catch (e) {
         if (!cancelled) {
+          // Fall back to static models so the UI is still usable
+          setModels(STATIC_MODELS);
+          if (!selectedModelId) setSelectedModelId(STATIC_MODELS[0].model_id);
           setLoadError(e instanceof Error ? e.message : "Failed to load models");
         }
       }
@@ -140,7 +252,7 @@ export default function StudioV2Page() {
     };
   }, [isLoaded, userId, getToken]);
 
-  // Fetch schema when model changes
+  // Fetch schema when model changes (static Veo variants reuse the "veo" schema)
   useEffect(() => {
     if (!selectedModelId || !isLoaded || !userId) return;
     let cancelled = false;
@@ -148,7 +260,8 @@ export default function StudioV2Page() {
     (async () => {
       try {
         const token = await getToken();
-        const s = await getStudioV2ModelSchema(selectedModelId, token ?? undefined);
+        const schemaId = resolveSchemaModelId(selectedModelId);
+        const s = await getStudioV2ModelSchema(schemaId, token ?? undefined);
         if (!cancelled) {
           setSchema(s);
           setFormState(buildDefaultFormState(s));
@@ -165,28 +278,7 @@ export default function StudioV2Page() {
   }, [selectedModelId, isLoaded, userId, getToken]);
 
   const handleFieldChange = useCallback((fieldId: string, value: unknown) => {
-    setFormState((prev) => {
-      const next = { ...prev, [fieldId]: value };
-
-      // Auto-enforce Veo resolution constraints:
-      // 1080p and 4k only support 16:9 aspect ratio and 8s duration
-      if (fieldId === "resolution" && (value === "1080p" || value === "4k")) {
-        next.aspect_ratio = "16:9";
-        next.duration_seconds = 8;
-      }
-      if (fieldId === "aspect_ratio" && value === "9:16") {
-        if (next.resolution === "1080p" || next.resolution === "4k") {
-          next.resolution = "720p";
-        }
-      }
-      if (fieldId === "duration_seconds" && Number(value) !== 8) {
-        if (next.resolution === "1080p" || next.resolution === "4k") {
-          next.resolution = "720p";
-        }
-      }
-
-      return next;
-    });
+    setFormState((prev) => ({ ...prev, [fieldId]: value }));
     setErrors((prev) => {
       const next = { ...prev };
       delete next[fieldId];
@@ -195,7 +287,11 @@ export default function StudioV2Page() {
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!schema || selectedModelId !== "veo") return;
+    if (!schema || !selectedModelId) return;
+    const isKling = KLING_MODEL_IDS.has(selectedModelId);
+    const isVeo = selectedModelId in MODEL_VARIANT_MAP;
+    if (!isKling && !isVeo) return;
+
     const prompt = formState.prompt;
     if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
       setErrors({ prompt: "Prompt is required" });
@@ -208,9 +304,30 @@ export default function StudioV2Page() {
     setResolvedVideoUrl(null);
     try {
       const token = await getToken();
-      const body = formStateToVeoRequest(formState);
-      const res = await generateStudioV2Veo(body, token ?? undefined);
-      setJobId(res.job_id);
+
+      if (isKling) {
+        const body = formStateToKlingRequest(formState);
+        const res = await generateStudioV2Kling(body, token ?? undefined);
+        setJobId(res.job_id);
+      } else {
+        const body = formStateToVeoRequest(formState, selectedModelId);
+
+        // Build reference images from @mentioned Elements (max 3 per Veo 3.1 API limit)
+        const promptText = String(formState.prompt ?? "");
+        const mentionedElements = [...new Set(promptText.match(/@[\w_]+/g) ?? [])]
+          .map((m) => elements.find((el) => el.name === m.slice(1)))
+          .filter((el): el is NonNullable<typeof el> => Boolean(el?.imageBase64));
+
+        if (mentionedElements.length > 0) {
+          body.reference_images_base64 = mentionedElements
+            .slice(0, 3) // Veo 3.1 hard limit: max 3 subject images
+            .map((el) => el.imageBase64);
+        }
+
+        const res = await generateStudioV2Veo(body, token ?? undefined);
+        setJobId(res.job_id);
+      }
+
       setJobStatus("generating");
       setJobProgress(0);
     } catch (e) {
@@ -222,7 +339,7 @@ export default function StudioV2Page() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [schema, selectedModelId, formState, getToken]);
+  }, [schema, selectedModelId, formState, elements, getToken]);
 
   // Poll job status
   useEffect(() => {
@@ -259,10 +376,14 @@ export default function StudioV2Page() {
     };
   }, [jobId, jobStatus, getToken]);
 
-  // Download video bytes from Veo and create blob URL for playback
+  // Download video bytes from Veo/Kling and create blob URL for playback
   useEffect(() => {
-    if (!videoUrl?.startsWith("veo://")) return;
-    const vid = videoUrl.replace("veo://", "");
+    const isVeo = videoUrl?.startsWith("veo://");
+    const isKling = videoUrl?.startsWith("kling://");
+    if (!isVeo && !isKling) return;
+    const vid = isVeo
+      ? videoUrl!.replace("veo://", "")
+      : videoUrl!.replace("kling://", "");
     let objectUrl: string | null = null;
     let cancelled = false;
 
@@ -318,14 +439,6 @@ export default function StudioV2Page() {
     });
   }, [userId, jobId, jobStatus, resolvedVideoUrl, formState.prompt]);
 
-  const constraintMessage = useMemo(() => {
-    const res = formState.resolution as string;
-    if (res === "1080p" || res === "4k") {
-      return `${res.toUpperCase()} requires 16:9 aspect ratio and 8s duration — auto-applied.`;
-    }
-    return null;
-  }, [formState.resolution]);
-
   const isGenerating =
     jobStatus === "generating" ||
     jobStatus === "processing" ||
@@ -354,17 +467,34 @@ export default function StudioV2Page() {
       {/* ── LEFT PANEL ── */}
       <Box
         sx={{
-          width: { xs: "100%", md: 380 },
+          width: { xs: "100%", md: 340 },
           flexShrink: 0,
           display: "flex",
           flexDirection: "column",
           borderRight: "1px solid",
           borderColor: "divider",
+          overflow: "hidden",
         }}
       >
-        {/* Scrollable form content */}
-        <Box sx={{ flex: 1, overflowY: "auto", p: 2 }}>
-          {/* Example / placeholder video */}
+        {loadError && (
+          <Alert severity="error" sx={{ mx: 1.5, mt: 1.5 }}>
+            {loadError}
+          </Alert>
+        )}
+
+        {/* Video preview */}
+        <Box
+          sx={{
+            mx: 1.5,
+            mt: 1.5,
+            mb: 0.5,
+            flexShrink: 0,
+            borderRadius: 3,
+            overflow: "hidden",
+            height: 148,
+            bgcolor: "black",
+          }}
+        >
           <Box
             component="video"
             src={EXAMPLE_VIDEO_URL}
@@ -372,65 +502,77 @@ export default function StudioV2Page() {
             muted
             loop
             playsInline
-            sx={{
-              width: "100%",
-              display: "block",
-              borderRadius: 1.5,
-              bgcolor: "black",
-              mb: 2,
-            }}
+            sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
           />
+        </Box>
 
-          {loadError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {loadError}
-            </Alert>
-          )}
-
-          {schema && (
-            <Stack spacing={2}>
-              {/* Start / end frame uploads */}
+        {schema && (
+          <>
+            {/* Media upload cards */}
+            <Box sx={{ px: 1.5, pt: 1.5, flexShrink: 0 }}>
               <MediaInputPanel
                 fields={schema.fields}
                 formState={formState}
                 onFieldChange={handleFieldChange}
                 errors={errors}
               />
+            </Box>
 
-              {/* Prompt fields */}
-              {promptFields.map((field) => (
-                <SchemaFieldRenderer
-                  key={field.id}
-                  field={field}
-                  value={formState[field.id]}
-                  onChange={handleFieldChange}
-                  error={errors[field.id]}
-                />
-              ))}
+            {/* Prompt fields — main prompt uses PromptField, others use SchemaFieldRenderer */}
+            <Box sx={{ flex: 1, display: "flex", flexDirection: "column", px: 1.5, pt: 1, minHeight: 0 }}>
+              <Stack spacing={1} sx={{ flex: 1 }}>
+                {promptFields.map((field) =>
+                  field.id === "prompt" ? (
+                    <PromptField
+                      key={field.id}
+                      field={field}
+                      value={String(formState[field.id] ?? "")}
+                      onChange={(v) => handleFieldChange(field.id, v)}
+                      error={errors[field.id]}
+                      enhancePrompt={enhancePrompt}
+                      onEnhanceChange={setEnhancePrompt}
+                      elements={elements}
+                      onElementsChange={handleElementsChange}
+                    />
+                  ) : (
+                    <SchemaFieldRenderer
+                      key={field.id}
+                      field={field}
+                      value={formState[field.id]}
+                      onChange={handleFieldChange}
+                      error={errors[field.id]}
+                    />
+                  ),
+                )}
+              </Stack>
+            </Box>
 
-              {/* Model selector */}
+            {/* Model selector */}
+            <Box sx={{ px: 1.5, pt: 1, flexShrink: 0 }}>
               <ModelSelector
                 models={models}
                 selectedModelId={selectedModelId}
                 onSelect={setSelectedModelId}
               />
+            </Box>
 
-              {/* Generation settings (audio, duration, aspect ratio, resolution) */}
+            {/* Generation settings icon strip */}
+            <Box sx={{ px: 1.5, pt: 1, flexShrink: 0 }}>
               <GenerationSettingsPanel
                 fields={schema.fields}
                 formState={formState}
                 onFieldChange={handleFieldChange}
                 errors={errors}
-                constraintMessage={constraintMessage ?? undefined}
               />
-            </Stack>
-          )}
-        </Box>
+            </Box>
+          </>
+        )}
 
         {/* Sticky generate button */}
         <Box
           sx={{
-            p: 2,
+            p: 1.5,
+            mt: "auto",
             flexShrink: 0,
             borderTop: "1px solid",
             borderColor: "divider",
@@ -439,14 +581,14 @@ export default function StudioV2Page() {
           {jobError && (
             <Alert
               severity="error"
-              sx={{ mb: 1.5 }}
+              sx={{ mb: 1 }}
               onClose={() => setJobError(null)}
             >
               {jobError}
             </Alert>
           )}
           {isGenerating && (
-            <Box sx={{ mb: 1.5 }}>
+            <Box sx={{ mb: 1 }}>
               <LinearProgress sx={{ borderRadius: 1 }} />
               <Typography
                 variant="caption"
@@ -464,7 +606,7 @@ export default function StudioV2Page() {
             startIcon={<AutoAwesomeIcon />}
             onClick={handleSubmit}
             disabled={isSubmitting || isGenerating || isDownloadingVideo || !schema}
-            sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2, py: 1.5 }}
+            sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2, py: 1.25 }}
           >
             {isSubmitting ? "Starting…" : isGenerating ? "Generating…" : "Generate"}
           </Button>

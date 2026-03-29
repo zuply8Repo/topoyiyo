@@ -210,7 +210,9 @@ export default function OutputsPanel({
                       <Box
                         component="video"
                         src={blobUrl}
-                        controls
+                        autoPlay
+                        muted
+                        loop
                         playsInline
                         sx={{
                           width: "100%",
@@ -246,57 +248,6 @@ export default function OutputsPanel({
                     )}
                   </Box>
 
-                  {/* Card info */}
-                  <Box sx={{ p: 1.5 }}>
-                    <Typography
-                      variant="caption"
-                      display="block"
-                      fontWeight={600}
-                      sx={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        mb: 0.5,
-                      }}
-                    >
-                      {job.prompt || "—"}
-                    </Typography>
-                    <Stack
-                      direction="row"
-                      alignItems="center"
-                      justifyContent="space-between"
-                    >
-                      <Typography variant="caption" color="text.secondary">
-                        {new Date(job.timestamp).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </Typography>
-                      <Stack direction="row" spacing={0.5} alignItems="center">
-                        {showGenerating && (
-                          <Chip
-                            label="Generating"
-                            size="small"
-                            color="warning"
-                            variant="outlined"
-                            sx={{ height: 18, fontSize: "0.6rem" }}
-                          />
-                        )}
-                        {blobUrl && (
-                          <IconButton
-                            size="small"
-                            component="a"
-                            href={blobUrl}
-                            download={`video-${job.job_id.slice(-6)}.mp4`}
-                            sx={{ p: 0.25 }}
-                          >
-                            <DownloadIcon sx={{ fontSize: 14 }} />
-                          </IconButton>
-                        )}
-                      </Stack>
-                    </Stack>
-                  </Box>
                 </Box>
               );
             })}

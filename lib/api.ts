@@ -1021,7 +1021,7 @@ export interface StudioV2FieldOption {
 export interface StudioV2FieldSchema {
   id: string;
   label: string;
-  type: "text" | "textarea" | "number" | "select" | "boolean" | "image" | "image_array" | "file";
+  type: "text" | "textarea" | "number" | "select" | "boolean" | "image" | "image_array" | "file" | "video_upload";
   required: boolean;
   default?: unknown;
   group: string;
@@ -1123,6 +1123,41 @@ export async function generateStudioV2Veo(
   return response.json();
 }
 
+export interface StudioV2KlingGenerateRequest {
+  prompt: string;
+  negative_prompt?: string;
+  generation_mode?: "text_to_video" | "image_to_video" | "motion_transfer";
+  first_frame_image_base64?: string;
+  last_frame_image_base64?: string;
+  character_image_base64?: string;
+  motion_reference_video_base64?: string;
+  aspect_ratio?: "16:9" | "9:16" | "1:1";
+  duration?: number;
+  mode?: "std" | "pro";
+  generate_audio?: boolean;
+}
+
+export interface StudioV2KlingGenerateResponse {
+  success: boolean;
+  job_id: string;
+  message: string;
+}
+
+export async function generateStudioV2Kling(
+  body: StudioV2KlingGenerateRequest,
+  token?: string | null
+): Promise<StudioV2KlingGenerateResponse> {
+  const response = await fetch(`${API_BASE_URL}/studio-v2/generate/kling`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to start Kling generation");
+  }
+  return response.json();
+}
+
 export async function getStudioV2JobStatus(
   jobId: string,
   token?: string | null
@@ -1133,6 +1168,45 @@ export async function getStudioV2JobStatus(
   });
   if (!response.ok) {
     await throwApiError(response, "Failed to fetch job status");
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Imagen API
+// ============================================================================
+
+export interface ImagenGenerateRequest {
+  prompt: string;
+  model_variant?: string;
+  aspect_ratio?: "1:1" | "3:4" | "4:3" | "16:9" | "9:16";
+  sample_count?: number;
+  enhance_prompt?: boolean;
+  person_generation?: "dont_allow" | "allow_adult" | "allow_all";
+}
+
+export interface ImagenGeneratedImage {
+  bytes_base64_encoded: string;
+  mime_type: string;
+  enhanced_prompt?: string;
+}
+
+export interface ImagenGenerateResponse {
+  success: boolean;
+  images: ImagenGeneratedImage[];
+}
+
+export async function generateImagenImage(
+  body: ImagenGenerateRequest,
+  token?: string | null
+): Promise<ImagenGenerateResponse> {
+  const response = await fetch(`${API_BASE_URL}/studio-v2/imagen/generate`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to generate image");
   }
   return response.json();
 }
