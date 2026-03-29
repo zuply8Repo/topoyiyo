@@ -28,13 +28,8 @@ async function bestEffortHubspotUpsertContact(params: {
   token: string;
   email: string;
   fullName: string;
-  industry: string;
-  businessName: string;
-  country: string;
-  address: string;
 }): Promise<{ contactId?: string } | null> {
-  const { token, email, fullName, industry, businessName, country, address } =
-    params;
+  const { token, email, fullName } = params;
 
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -67,10 +62,6 @@ async function bestEffortHubspotUpsertContact(params: {
     email,
     firstname: fullName.split(" ")[0] || fullName,
     lastname: fullName.split(" ").slice(1).join(" ") || "",
-    company: businessName,
-    industry,
-    country,
-    address,
   };
 
   // 2) Update if exists, otherwise create
@@ -139,14 +130,10 @@ export async function POST(req: Request) {
 
   const { data: existingProfile } = await supabase
     .from("user_profiles")
-    .select("full_name,industry,business_name,country,address")
+    .select("full_name")
     .eq("auth_user_id", userId)
     .maybeSingle();
 
-  const profileIndustry = existingProfile?.industry ?? "";
-  const profileBusinessName = existingProfile?.business_name ?? "";
-  const profileCountry = existingProfile?.country ?? "";
-  const profileAddress = existingProfile?.address ?? "";
   const profileFullName = existingProfile?.full_name || fallbackFullName;
 
   const answersEnvelope: OnboardingAnswersEnvelope = {
@@ -159,10 +146,6 @@ export async function POST(req: Request) {
     auth_user_id: userId,
     email,
     full_name: profileFullName,
-    industry: profileIndustry,
-    business_name: profileBusinessName,
-    country: profileCountry,
-    address: profileAddress,
     audience_onboarding_answers: answersEnvelope,
     audience_onboarding_completed_at: answersEnvelope.submittedAt,
   };
@@ -203,10 +186,6 @@ export async function POST(req: Request) {
         token: hubspotToken,
         email,
         fullName: profileFullName,
-        industry: profileIndustry,
-        businessName: profileBusinessName,
-        country: profileCountry,
-        address: profileAddress,
       });
       hubspotContactId = result?.contactId;
     } catch {
