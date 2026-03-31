@@ -38,7 +38,10 @@ export interface StudioElement {
   id: string;
   name: string;
   category: "character" | "location" | "prop";
+  /** Raw base64 string (no data-URL prefix). May be empty when imageUrl is set. */
   imageBase64: string;
+  /** Public URL from Supabase Storage. Preferred over imageBase64 for display. */
+  imageUrl?: string;
   pinned: boolean;
 }
 
@@ -103,10 +106,13 @@ function ElementCard({
         "&:hover": { borderColor: "primary.main" },
       }}
     >
-      {element.imageBase64 ? (
+      {(element.imageUrl || element.imageBase64) ? (
         <Box
           component="img"
-          src={`data:image/png;base64,${element.imageBase64}`}
+          src={
+            element.imageUrl ??
+            `data:image/png;base64,${element.imageBase64}`
+          }
           sx={{ width: "100%", height: "100%", objectFit: "cover" }}
           onError={(e) => {
             (e.target as HTMLImageElement).style.display = "none";
@@ -347,7 +353,7 @@ export default function ElementsPanel({
                 {newImage ? (
                   <Box
                     component="img"
-                    src={`data:image/png;base64,${newImage}`}
+                    src={newImage.startsWith("http") ? newImage : `data:image/png;base64,${newImage}`}
                     sx={{ width: "100%", height: "100%", objectFit: "cover" }}
                   />
                 ) : (

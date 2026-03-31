@@ -192,10 +192,13 @@ export default function PromptField({
                   borderColor: "divider",
                 }}
               >
-                {el.imageBase64 && (
+                {(el.imageUrl || el.imageBase64) && (
                   <Box
                     component="img"
-                    src={`data:image/png;base64,${el.imageBase64}`}
+                    src={
+                      el.imageUrl ??
+                      `data:image/png;base64,${el.imageBase64}`
+                    }
                     sx={{
                       width: 16,
                       height: 16,

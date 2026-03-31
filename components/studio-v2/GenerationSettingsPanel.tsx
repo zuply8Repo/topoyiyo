@@ -27,8 +27,7 @@ import VolumeOffOutlinedIcon from "@mui/icons-material/VolumeOffOutlined";
 import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
 import TuneOutlinedIcon from "@mui/icons-material/TuneOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
-import TextFieldsOutlinedIcon from "@mui/icons-material/TextFieldsOutlined";
-import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
+import MovieOutlinedIcon from "@mui/icons-material/MovieOutlined";
 import DirectionsRunIcon from "@mui/icons-material/DirectionsRun";
 import type { StudioV2FieldSchema } from "@/lib/api";
 
@@ -144,19 +143,11 @@ export default function GenerationSettingsPanel({
               size="small"
               sx={chipGroupSx}
             >
-              <Tooltip title="Text to Video">
-                <ToggleButton value="text_to_video" sx={chipSx}>
-                  <TextFieldsOutlinedIcon sx={{ fontSize: 14, mr: 0.25 }} />
+              <Tooltip title="Scene — text or image to video (auto-detected)">
+                <ToggleButton value="scene" sx={chipSx}>
+                  <MovieOutlinedIcon sx={{ fontSize: 14, mr: 0.25 }} />
                   <Typography variant="caption" fontWeight={700} sx={{ fontSize: 11, lineHeight: 1 }}>
-                    T2V
-                  </Typography>
-                </ToggleButton>
-              </Tooltip>
-              <Tooltip title="Image to Video">
-                <ToggleButton value="image_to_video" sx={chipSx}>
-                  <ImageOutlinedIcon sx={{ fontSize: 14, mr: 0.25 }} />
-                  <Typography variant="caption" fontWeight={700} sx={{ fontSize: 11, lineHeight: 1 }}>
-                    I2V
+                    Scene
                   </Typography>
                 </ToggleButton>
               </Tooltip>

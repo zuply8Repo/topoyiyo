@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -35,7 +35,6 @@ import type {
 } from "@/lib/api";
 
 const POLL_INTERVAL_MS = 5000;
-const LS_KEY_PREFIX = "studio-v2-jobs";
 const EXAMPLE_VIDEO_URL =
   "https://drdhjfxoqaxcjolegdya.supabase.co/storage/v1/object/public/generated-videos/videos/6940b42f-6521-40af-b031-5539e3c4b6e6/story_video_3_pgzgndh9m768.mp4";
 
@@ -54,7 +53,7 @@ const STATIC_MODELS: StudioV2ModelSummary[] = [
     description: "Veo 3.1 Fast Generate 001 — faster, lighter generation",
   },
   {
-    model_id: "kling-v2-6",
+    model_id: "kling",
     label: "Kling v2.6",
     media_type: "video",
     description: "Kling AI v2.6 — high-fidelity video with native audio and Motion Transfer",
@@ -69,7 +68,7 @@ const MODEL_VARIANT_MAP: Record<string, string> = {
 };
 
 /** Kling model IDs — these use the Kling generation path. */
-const KLING_MODEL_IDS = new Set(["kling-v2-6"]);
+const KLING_MODEL_IDS = new Set(["kling", "kling-v2-6"]);
 
 /** Schema API key to use — Veo variants share "veo", Kling uses "kling". */
 function resolveSchemaModelId(modelId: string): string {
@@ -116,7 +115,6 @@ function formStateToVeoRequest(
     last_frame_image_base64: formState.last_frame_image
       ? String(formState.last_frame_image)
       : undefined,
-    // reference_images_base64 is built from @mentioned Elements at submit time
     reference_images_base64: undefined,
     aspect_ratio: (formState.aspect_ratio as "16:9" | "9:16") ?? "9:16",
     duration_seconds: (Number(formState.duration_seconds) || 8) as 4 | 6 | 8,
@@ -136,14 +134,22 @@ function formStateToVeoRequest(
 function formStateToKlingRequest(
   formState: Record<string, unknown>,
 ): StudioV2KlingGenerateRequest {
+  const schemaMode = formState.generation_mode as string | undefined;
+  const hasFirstFrame = Boolean(formState.first_frame_image);
+
+  let generation_mode: "text_to_video" | "image_to_video" | "motion_transfer";
+  if (schemaMode === "motion_transfer") {
+    generation_mode = "motion_transfer";
+  } else {
+    generation_mode = hasFirstFrame ? "image_to_video" : "text_to_video";
+  }
+
   return {
     prompt: String(formState.prompt ?? ""),
     negative_prompt: formState.negative_prompt
       ? String(formState.negative_prompt)
       : undefined,
-    generation_mode:
-      (formState.generation_mode as "text_to_video" | "image_to_video" | "motion_transfer") ??
-      "text_to_video",
+    generation_mode,
     first_frame_image_base64: formState.first_frame_image
       ? String(formState.first_frame_image)
       : undefined,
@@ -161,6 +167,34 @@ function formStateToKlingRequest(
     mode: (formState.mode as "std" | "pro") ?? "std",
     generate_audio: Boolean(formState.generate_audio ?? false),
   };
+}
+
+/** Fetch an image from a URL and return its raw base64 string (no data-URL prefix). */
+async function urlToBase64(url: string): Promise<string> {
+  const res = await fetch(url);
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.includes(",") ? result.split(",")[1] : result);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Resolve reference image base64 for an element (lazy-fetch if only URL is available). */
+async function resolveElementBase64(el: StudioElement): Promise<string | null> {
+  if (el.imageBase64) return el.imageBase64;
+  if (el.imageUrl) {
+    try {
+      return await urlToBase64(el.imageUrl);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export default function StudioV2Page() {
@@ -183,43 +217,82 @@ export default function StudioV2Page() {
   const [enhancePrompt, setEnhancePrompt] = useState(false);
   const [elements, setElements] = useState<StudioElement[]>([]);
 
-  // Load past jobs from localStorage on mount
-  useEffect(() => {
-    if (!userId) return;
-    try {
-      const raw = localStorage.getItem(`${LS_KEY_PREFIX}-${userId}`);
-      if (raw) setSavedJobs(JSON.parse(raw));
-    } catch {
-      // ignore parse errors
-    }
-  }, [userId]);
+  // Track which DB job IDs we've already saved to avoid duplicate POSTs
+  const savedJobIdsRef = useRef<Set<string>>(new Set());
 
-  // Load elements from localStorage
+  // ---------------------------------------------------------------------------
+  // Load jobs and elements from DB on mount
+  // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (!userId) return;
-    try {
-      const raw = localStorage.getItem(`studio-v2-elements-${userId}`);
-      if (raw) setElements(JSON.parse(raw));
-    } catch {
-      // ignore parse errors
-    }
-  }, [userId]);
+    if (!userId || !isLoaded) return;
 
-  const handleElementsChange = useCallback(
-    (updated: StudioElement[]) => {
-      setElements(updated);
-      if (userId) {
-        try {
-          localStorage.setItem(`studio-v2-elements-${userId}`, JSON.stringify(updated));
-        } catch {
-          // ignore storage errors
+    const load = async () => {
+      try {
+        const [jobsRes, elementsRes] = await Promise.all([
+          fetch("/api/studio-v2/jobs"),
+          fetch("/api/studio-v2/elements"),
+        ]);
+
+        if (jobsRes.ok) {
+          const { jobs } = await jobsRes.json() as { jobs: Array<{
+            provider_job_id: string;
+            prompt: string;
+            created_at: string;
+            status: string;
+          }> };
+          const loaded: SavedJob[] = jobs
+            .filter((j) => j.status === "completed" || j.status === "failed")
+            .map((j) => ({
+              job_id: j.provider_job_id,
+              prompt: j.prompt,
+              timestamp: j.created_at,
+              status: j.status as "completed" | "failed",
+            }));
+          setSavedJobs(loaded);
+          loaded.forEach((j) => savedJobIdsRef.current.add(j.job_id));
         }
-      }
-    },
-    [userId],
-  );
 
+        if (elementsRes.ok) {
+          const { elements: dbElements } = await elementsRes.json() as {
+            elements: Array<{
+              id: string;
+              name: string;
+              category: "character" | "location" | "prop";
+              pinned: boolean;
+              imageUrl: string | null;
+            }>;
+          };
+          setElements(
+            dbElements.map((el) => ({
+              id: el.id,
+              name: el.name,
+              category: el.category,
+              pinned: el.pinned,
+              imageBase64: "",    // populated lazily on submit if needed
+              imageUrl: el.imageUrl ?? undefined,
+            }))
+          );
+        }
+      } catch (e) {
+        console.warn("[studio-v2] Failed to load from DB, falling back to localStorage", e);
+        // Fallback: load from localStorage
+        try {
+          const raw = localStorage.getItem(`studio-v2-jobs-${userId}`);
+          if (raw) setSavedJobs(JSON.parse(raw));
+        } catch { /* ignore */ }
+        try {
+          const raw = localStorage.getItem(`studio-v2-elements-${userId}`);
+          if (raw) setElements(JSON.parse(raw));
+        } catch { /* ignore */ }
+      }
+    };
+
+    load();
+  }, [userId, isLoaded]);
+
+  // ---------------------------------------------------------------------------
   // Fetch available models and merge with static entries
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!isLoaded || !userId) return;
     let cancelled = false;
@@ -228,9 +301,10 @@ export default function StudioV2Page() {
         const token = await getToken();
         const apiList = await getStudioV2Models(token ?? undefined);
         if (!cancelled) {
-          const apiIds = new Set(apiList.map((m) => m.model_id));
+          const videoModels = apiList.filter((m) => m.media_type === "video");
+          const apiIds = new Set(videoModels.map((m) => m.model_id));
           const merged = [
-            ...apiList,
+            ...videoModels,
             ...STATIC_MODELS.filter((m) => !apiIds.has(m.model_id)),
           ];
           setModels(merged);
@@ -240,19 +314,19 @@ export default function StudioV2Page() {
         }
       } catch (e) {
         if (!cancelled) {
-          // Fall back to static models so the UI is still usable
           setModels(STATIC_MODELS);
           if (!selectedModelId) setSelectedModelId(STATIC_MODELS[0].model_id);
           setLoadError(e instanceof Error ? e.message : "Failed to load models");
         }
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, userId, getToken]);
 
-  // Fetch schema when model changes (static Veo variants reuse the "veo" schema)
+  // ---------------------------------------------------------------------------
+  // Fetch schema when model changes
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!selectedModelId || !isLoaded || !userId) return;
     let cancelled = false;
@@ -272,9 +346,7 @@ export default function StudioV2Page() {
         }
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [selectedModelId, isLoaded, userId, getToken]);
 
   const handleFieldChange = useCallback((fieldId: string, value: unknown) => {
@@ -286,6 +358,85 @@ export default function StudioV2Page() {
     });
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Elements — diff-based DB sync
+  // ---------------------------------------------------------------------------
+  const handleElementsChange = useCallback(
+    async (updated: StudioElement[]) => {
+      const prev = elements;
+      setElements(updated);
+
+      if (!userId) return;
+
+      try {
+        if (updated.length > prev.length) {
+          // New element added — find it and POST to DB
+          const newEl = updated.find((el) => !prev.some((p) => p.id === el.id));
+          if (newEl) {
+            const res = await fetch("/api/studio-v2/elements", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: newEl.name,
+                category: newEl.category,
+                pinned: newEl.pinned,
+                imageBase64: newEl.imageBase64 || undefined,
+                imageMimeType: "image/png",
+              }),
+            });
+            if (res.ok) {
+              const { element } = await res.json() as { element: { id: string; imageUrl: string | null } };
+              // Replace the temp element with the DB version (real UUID + imageUrl)
+              setElements((curr) =>
+                curr.map((el) =>
+                  el.id === newEl.id
+                    ? { ...el, id: element.id, imageUrl: element.imageUrl ?? undefined, imageBase64: "" }
+                    : el
+                )
+              );
+            }
+          }
+        } else if (updated.length < prev.length) {
+          // Element deleted
+          const deletedEl = prev.find((el) => !updated.some((u) => u.id === el.id));
+          if (deletedEl) {
+            await fetch(`/api/studio-v2/elements?id=${encodeURIComponent(deletedEl.id)}`, {
+              method: "DELETE",
+            });
+          }
+        } else {
+          // Element updated (pin/unpin or other change)
+          const changedEl = updated.find((el) => {
+            const prevEl = prev.find((p) => p.id === el.id);
+            return prevEl && (
+              prevEl.pinned !== el.pinned ||
+              prevEl.name !== el.name ||
+              prevEl.category !== el.category
+            );
+          });
+          if (changedEl) {
+            await fetch("/api/studio-v2/elements", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: changedEl.id,
+                pinned: changedEl.pinned,
+                name: changedEl.name,
+                category: changedEl.category,
+              }),
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("[studio-v2] element sync failed", e);
+      }
+    },
+    [elements, userId]
+  );
+
+  // ---------------------------------------------------------------------------
+  // Submit generation job
+  // ---------------------------------------------------------------------------
   const handleSubmit = useCallback(async () => {
     if (!schema || !selectedModelId) return;
     const isKling = KLING_MODEL_IDS.has(selectedModelId);
@@ -302,34 +453,57 @@ export default function StudioV2Page() {
     setJobError(null);
     setVideoUrl(null);
     setResolvedVideoUrl(null);
+
     try {
       const token = await getToken();
 
+      // Resolve @mentioned elements, fetching base64 from URL if needed
+      const promptText = String(formState.prompt ?? "");
+      const mentionedElements = [...new Set(promptText.match(/@[\w_]+/g) ?? [])]
+        .map((m) => elements.find((el) => el.name === m.slice(1)))
+        .filter((el): el is StudioElement => Boolean(el?.imageBase64 || el?.imageUrl));
+
+      const referenceBase64List = (
+        await Promise.all(
+          mentionedElements.slice(0, 3).map((el) => resolveElementBase64(el))
+        )
+      ).filter((b): b is string => Boolean(b));
+
+      let newJobId: string;
+
       if (isKling) {
         const body = formStateToKlingRequest(formState);
+        if (referenceBase64List.length > 0) {
+          body.reference_images_base64 = referenceBase64List;
+        }
         const res = await generateStudioV2Kling(body, token ?? undefined);
-        setJobId(res.job_id);
+        newJobId = res.job_id;
       } else {
         const body = formStateToVeoRequest(formState, selectedModelId);
-
-        // Build reference images from @mentioned Elements (max 3 per Veo 3.1 API limit)
-        const promptText = String(formState.prompt ?? "");
-        const mentionedElements = [...new Set(promptText.match(/@[\w_]+/g) ?? [])]
-          .map((m) => elements.find((el) => el.name === m.slice(1)))
-          .filter((el): el is NonNullable<typeof el> => Boolean(el?.imageBase64));
-
-        if (mentionedElements.length > 0) {
-          body.reference_images_base64 = mentionedElements
-            .slice(0, 3) // Veo 3.1 hard limit: max 3 subject images
-            .map((el) => el.imageBase64);
+        if (referenceBase64List.length > 0) {
+          body.reference_images_base64 = referenceBase64List;
         }
-
         const res = await generateStudioV2Veo(body, token ?? undefined);
-        setJobId(res.job_id);
+        newJobId = res.job_id;
       }
 
+      setJobId(newJobId);
       setJobStatus("generating");
       setJobProgress(0);
+
+      // Persist job to DB (fire-and-forget, don't block the UI)
+      if (!savedJobIdsRef.current.has(newJobId)) {
+        savedJobIdsRef.current.add(newJobId);
+        fetch("/api/studio-v2/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider_job_id: newJobId,
+            model_id: selectedModelId,
+            prompt: String(formState.prompt ?? "").trim(),
+          }),
+        }).catch((e) => console.warn("[studio-v2] job create failed", e));
+      }
     } catch (e) {
       if (e instanceof ApiError) {
         setJobError(e.message);
@@ -341,17 +515,16 @@ export default function StudioV2Page() {
     }
   }, [schema, selectedModelId, formState, elements, getToken]);
 
+  // ---------------------------------------------------------------------------
   // Poll job status
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (
       !jobId ||
-      !(
-        jobStatus === "generating" ||
-        jobStatus === "processing" ||
-        jobStatus === "pending"
-      )
+      !(jobStatus === "generating" || jobStatus === "processing" || jobStatus === "pending")
     )
       return;
+
     let cancelled = false;
     const poll = async () => {
       try {
@@ -369,14 +542,12 @@ export default function StudioV2Page() {
 
     const id = setInterval(poll, POLL_INTERVAL_MS);
     poll();
-
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
+    return () => { cancelled = true; clearInterval(id); };
   }, [jobId, jobStatus, getToken]);
 
+  // ---------------------------------------------------------------------------
   // Download video bytes from Veo/Kling and create blob URL for playback
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     const isVeo = videoUrl?.startsWith("veo://");
     const isKling = videoUrl?.startsWith("kling://");
@@ -412,32 +583,45 @@ export default function StudioV2Page() {
     };
   }, [videoUrl, getToken]);
 
-  // Persist completed job to localStorage
+  // ---------------------------------------------------------------------------
+  // Persist completed job to DB + state
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!userId || !jobId || jobStatus !== "completed" || !resolvedVideoUrl) return;
-    const newJob: SavedJob = {
-      job_id: jobId,
-      prompt: String(formState.prompt ?? ""),
-      timestamp: new Date().toISOString(),
-      status: "completed",
-      blobUrl: resolvedVideoUrl,
-    };
+
     setSavedJobs((prev) => {
       if (prev.find((j) => j.job_id === jobId)) return prev;
-      const updated = [newJob, ...prev];
-      try {
-        // Strip session-only blob URLs before persisting
-        const toSave = updated.map(({ blobUrl: _b, ...rest }) => rest);
-        localStorage.setItem(
-          `${LS_KEY_PREFIX}-${userId}`,
-          JSON.stringify(toSave)
-        );
-      } catch {
-        // ignore storage errors
-      }
-      return updated;
+      return [
+        {
+          job_id: jobId,
+          prompt: String(formState.prompt ?? ""),
+          timestamp: new Date().toISOString(),
+          status: "completed",
+          blobUrl: resolvedVideoUrl,
+        },
+        ...prev,
+      ];
     });
+
+    // Update status in DB (fire-and-forget)
+    fetch("/api/studio-v2/jobs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider_job_id: jobId, status: "completed" }),
+    }).catch((e) => console.warn("[studio-v2] job update failed", e));
   }, [userId, jobId, jobStatus, resolvedVideoUrl, formState.prompt]);
+
+  // ---------------------------------------------------------------------------
+  // Mark failed jobs in DB
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!userId || !jobId || jobStatus !== "failed") return;
+    fetch("/api/studio-v2/jobs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider_job_id: jobId, status: "failed" }),
+    }).catch((e) => console.warn("[studio-v2] job fail update failed", e));
+  }, [userId, jobId, jobStatus]);
 
   const isGenerating =
     jobStatus === "generating" ||
@@ -518,7 +702,7 @@ export default function StudioV2Page() {
               />
             </Box>
 
-            {/* Prompt fields — main prompt uses PromptField, others use SchemaFieldRenderer */}
+            {/* Prompt fields */}
             <Box sx={{ flex: 1, display: "flex", flexDirection: "column", px: 1.5, pt: 1, minHeight: 0 }}>
               <Stack spacing={1} sx={{ flex: 1 }}>
                 {promptFields.map((field) =>
@@ -556,13 +740,20 @@ export default function StudioV2Page() {
               />
             </Box>
 
-            {/* Generation settings icon strip */}
+            {/* Generation settings */}
             <Box sx={{ px: 1.5, pt: 1, flexShrink: 0 }}>
               <GenerationSettingsPanel
                 fields={schema.fields}
                 formState={formState}
                 onFieldChange={handleFieldChange}
                 errors={errors}
+                constraintMessage={
+                  KLING_MODEL_IDS.has(selectedModelId ?? "") &&
+                  formState.last_frame_image &&
+                  formState.mode !== "pro"
+                    ? "Last frame requires Pro mode — will auto-upgrade to Pro."
+                    : undefined
+                }
               />
             </Box>
           </>

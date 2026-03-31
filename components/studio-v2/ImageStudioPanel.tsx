@@ -5,8 +5,6 @@ import { Box, Typography, alpha, useTheme } from "@mui/material";
 import ImageExplorePanel from "./ImageExplorePanel";
 import ImageGallery, { type GeneratedImageItem } from "./ImageGallery";
 
-const LS_KEY_PREFIX = "studio-v2-imagen-images";
-
 type ImageTab = "explore" | "your-own";
 
 interface ImageStudioPanelProps {
@@ -66,27 +64,115 @@ export default function ImageStudioPanel({
   const [activeTab, setActiveTab] = useState<ImageTab>("explore");
   const [images, setImages] = useState<GeneratedImageItem[]>([]);
 
-  // Load persisted images from localStorage
+  // Load persisted images from DB on mount
   useEffect(() => {
     if (!userId) return;
-    try {
-      const raw = localStorage.getItem(`${LS_KEY_PREFIX}-${userId}`);
-      if (raw) {
-        const parsed = JSON.parse(raw) as GeneratedImageItem[];
-        setImages(parsed);
+
+    const load = async () => {
+      try {
+        const res = await fetch("/api/studio-v2/images");
+        if (!res.ok) throw new Error("Failed to fetch images");
+        const { images: dbImages } = await res.json() as {
+          images: Array<{
+            id: string;
+            imageUrl: string;
+            mimeType: string;
+            prompt: string;
+            modelVariant: string;
+            aspectRatio: string;
+            timestamp: string;
+          }>;
+        };
+        setImages(
+          dbImages.map((img) => ({
+            id: img.id,
+            bytesBase64: "",          // not stored locally; use imageUrl for display
+            imageUrl: img.imageUrl,
+            mimeType: img.mimeType,
+            prompt: img.prompt,
+            modelVariant: img.modelVariant,
+            aspectRatio: img.aspectRatio,
+            timestamp: img.timestamp,
+          }))
+        );
+      } catch (e) {
+        console.warn("[image-studio] DB load failed, falling back to localStorage", e);
+        // Fallback to localStorage for resilience
+        try {
+          const raw = localStorage.getItem(`studio-v2-imagen-images-${userId}`);
+          if (raw) setImages(JSON.parse(raw));
+        } catch { /* ignore */ }
       }
-    } catch {
-      // ignore parse errors
-    }
+    };
+
+    load();
   }, [userId]);
 
-  const handleImagesChange = (updated: GeneratedImageItem[]) => {
-    setImages(updated);
-    try {
-      localStorage.setItem(`${LS_KEY_PREFIX}-${userId}`, JSON.stringify(updated));
-    } catch {
-      // ignore storage errors
+  /**
+   * Called by ImageExplorePanel when new images are generated.
+   * Saves each new image to the DB (and falls back to localStorage if needed).
+   */
+  const handleImagesChange = async (updated: GeneratedImageItem[]) => {
+    // Detect newly added images (those without an imageUrl yet are brand-new base64 results)
+    const newImages = updated.filter(
+      (img) => !images.some((existing) => existing.id === img.id)
+    );
+
+    const savedImages: GeneratedImageItem[] = [];
+
+    for (const img of newImages) {
+      if (!img.bytesBase64) continue;
+      try {
+        const res = await fetch("/api/studio-v2/images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bytesBase64: img.bytesBase64,
+            mimeType: img.mimeType,
+            prompt: img.prompt,
+            modelVariant: img.modelVariant,
+            aspectRatio: img.aspectRatio,
+          }),
+        });
+
+        if (res.ok) {
+          const { image } = await res.json() as {
+            image: {
+              id: string;
+              imageUrl: string;
+              mimeType: string;
+              prompt: string;
+              modelVariant: string;
+              aspectRatio: string;
+              timestamp: string;
+            };
+          };
+          savedImages.push({
+            id: image.id,
+            bytesBase64: "",           // no longer needed once saved to storage
+            imageUrl: image.imageUrl,
+            mimeType: image.mimeType,
+            prompt: image.prompt,
+            modelVariant: image.modelVariant,
+            aspectRatio: image.aspectRatio,
+            timestamp: image.timestamp,
+          });
+        } else {
+          // DB save failed — keep original (with base64) so it still displays
+          savedImages.push(img);
+        }
+      } catch {
+        savedImages.push(img);
+      }
     }
+
+    // Merge: existing DB images first, then new ones prepended
+    const existingIds = new Set(images.map((i) => i.id));
+    const merged = [
+      ...savedImages,
+      ...updated.filter((i) => existingIds.has(i.id)),
+    ];
+    setImages(merged);
   };
 
   return (

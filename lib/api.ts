@@ -1032,6 +1032,8 @@ export interface StudioV2FieldSchema {
   placeholder?: string;
   visible_when?: Record<string, unknown>;
   max_items?: number;
+  accepted_mime_types?: string[];
+  max_file_size_mb?: number;
 }
 
 export interface StudioV2ModelSchema {
@@ -1131,6 +1133,7 @@ export interface StudioV2KlingGenerateRequest {
   last_frame_image_base64?: string;
   character_image_base64?: string;
   motion_reference_video_base64?: string;
+  reference_images_base64?: string[];
   aspect_ratio?: "16:9" | "9:16" | "1:1";
   duration?: number;
   mode?: "std" | "pro";
@@ -1196,11 +1199,46 @@ export interface ImagenGenerateResponse {
   images: ImagenGeneratedImage[];
 }
 
+export interface StudioV2ImageInput {
+  bytes_base64: string;
+  mime_type: string;
+  file_name?: string;
+}
+
+export interface StudioV2ImageGenerateRequest {
+  prompt: string;
+  aspect_ratio?: "1:1" | "3:4" | "4:3" | "16:9" | "9:16";
+  image_size?: "1K" | "2K" | "4K";
+  sample_count?: number;
+  reference_images?: StudioV2ImageInput[];
+}
+
+export interface StudioV2ImageGenerateResponse {
+  success: boolean;
+  images: ImagenGeneratedImage[];
+}
+
 export async function generateImagenImage(
   body: ImagenGenerateRequest,
   token?: string | null
 ): Promise<ImagenGenerateResponse> {
   const response = await fetch(`${API_BASE_URL}/studio-v2/imagen/generate`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to generate image");
+  }
+  return response.json();
+}
+
+export async function generateStudioV2Image(
+  modelId: string,
+  body: StudioV2ImageGenerateRequest,
+  token?: string | null
+): Promise<StudioV2ImageGenerateResponse> {
+  const response = await fetch(`${API_BASE_URL}/studio-v2/generate/image/${modelId}`, {
     method: "POST",
     headers: await getAuthHeaders(token),
     body: JSON.stringify(body),

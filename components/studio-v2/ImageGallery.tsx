@@ -15,6 +15,8 @@ import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 export interface GeneratedImageItem {
   id: string;
   bytesBase64: string;
+  /** Public URL from Supabase Storage. Preferred over bytesBase64 for display. */
+  imageUrl?: string;
   mimeType: string;
   prompt: string;
   modelVariant: string;
@@ -27,11 +29,16 @@ interface ImageGalleryProps {
   emptyLabel?: string;
 }
 
+function resolveImageSrc(image: GeneratedImageItem): string {
+  if (image.imageUrl) return image.imageUrl;
+  return `data:${image.mimeType};base64,${image.bytesBase64}`;
+}
+
 function downloadImage(image: GeneratedImageItem) {
   const link = document.createElement("a");
-  link.href = `data:${image.mimeType};base64,${image.bytesBase64}`;
+  link.href = resolveImageSrc(image);
   const ext = image.mimeType.includes("png") ? "png" : "jpg";
-  link.download = `imagen-${image.id}.${ext}`;
+  link.download = `generated-image-${image.id}.${ext}`;
   link.click();
 }
 
@@ -58,7 +65,7 @@ function ImageCard({
     >
       <Box
         component="img"
-        src={`data:${image.mimeType};base64,${image.bytesBase64}`}
+        src={resolveImageSrc(image)}
         alt={image.prompt}
         sx={{
           width: "100%",
@@ -183,7 +190,7 @@ export default function ImageGallery({
             </Box>
             <Box
               component="img"
-              src={`data:${lightboxImage.mimeType};base64,${lightboxImage.bytesBase64}`}
+              src={resolveImageSrc(lightboxImage)}
               alt={lightboxImage.prompt}
               sx={{ width: "100%", display: "block", maxHeight: "80vh", objectFit: "contain" }}
             />

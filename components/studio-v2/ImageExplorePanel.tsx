@@ -1,46 +1,49 @@
 "use client";
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
   CircularProgress,
   FormControl,
-  IconButton,
   MenuItem,
   Select,
   TextField,
-  Tooltip,
   Typography,
   alpha,
   useTheme,
 } from "@mui/material";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
-import AddIcon from "@mui/icons-material/Add";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
-import { generateImagenImage, type ImagenGenerateRequest } from "@/lib/api";
+import {
+  generateStudioV2Image,
+  getStudioV2ModelSchema,
+  getStudioV2Models,
+  type StudioV2FieldSchema,
+  type StudioV2ImageGenerateRequest,
+  type StudioV2ImageInput,
+  type StudioV2ModelSchema,
+  type StudioV2ModelSummary,
+} from "@/lib/api";
 import ImageGallery, { type GeneratedImageItem } from "./ImageGallery";
-
-const IMAGEN_MODELS = [
-  { id: "imagen-4.0-generate-001", label: "Imagen 4" },
-  { id: "imagen-4.0-fast-generate-001", label: "Imagen 4 Fast" },
-  { id: "imagen-4.0-ultra-generate-001", label: "Imagen 4 Ultra" },
-] as const;
-
-const ASPECT_RATIOS = [
-  { value: "1:1", label: "1:1" },
-  { value: "3:4", label: "3:4" },
-  { value: "4:3", label: "4:3" },
-  { value: "16:9", label: "16:9" },
-  { value: "9:16", label: "9:16" },
-] as const;
-
-type AspectRatio = "1:1" | "3:4" | "4:3" | "16:9" | "9:16";
+import ImageReferenceTray from "./ImageReferenceTray";
 
 interface ImageExplorePanelProps {
   images: GeneratedImageItem[];
   onImagesChange: (images: GeneratedImageItem[]) => void;
   getToken: () => Promise<string | null>;
+}
+
+function buildDefaultFormState(schema: StudioV2ModelSchema): Record<string, unknown> {
+  const state: Record<string, unknown> = {};
+  for (const field of schema.fields) {
+    if (field.id === "reference_images") {
+      state[field.id] = [];
+      continue;
+    }
+    state[field.id] = field.default ?? (field.type === "boolean" ? false : "");
+  }
+  return state;
 }
 
 export default function ImageExplorePanel({
@@ -49,18 +52,104 @@ export default function ImageExplorePanel({
   getToken,
 }: ImageExplorePanelProps) {
   const theme = useTheme();
-  const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState<string>("imagen-4.0-generate-001");
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
+  const textareaRef = useRef<HTMLInputElement>(null);
+  const [models, setModels] = useState<StudioV2ModelSummary[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string>("");
+  const [schema, setSchema] = useState<StudioV2ModelSchema | null>(null);
+  const [formState, setFormState] = useState<Record<string, unknown>>({});
   const [sampleCount, setSampleCount] = useState(4);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isLoadingSchema, setIsLoadingSchema] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await getStudioV2Models(token ?? undefined);
+        const imageModels = res.filter((model) => model.media_type === "image");
+        if (!cancelled) {
+          setModels(imageModels);
+          const ids = new Set(imageModels.map((m) => m.model_id));
+          setSelectedModelId((current) => {
+            if (current && ids.has(current)) return current;
+            return (
+              imageModels.find((m) => m.model_id === "imagen-4")?.model_id ??
+              imageModels[0]?.model_id ??
+              ""
+            );
+          });
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Failed to load image models");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
+
+  useEffect(() => {
+    if (!selectedModelId) return;
+    let cancelled = false;
+    setIsLoadingSchema(true);
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await getStudioV2ModelSchema(selectedModelId, token ?? undefined);
+        if (!cancelled) {
+          setSchema(res);
+          setFormState(buildDefaultFormState(res));
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Failed to load model schema");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingSchema(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedModelId, getToken]);
+
+  const handleFieldChange = useCallback((fieldId: string, value: unknown) => {
+    setFormState((prev) => ({ ...prev, [fieldId]: value }));
+  }, []);
+
+  const referenceField = useMemo(
+    () => schema?.fields.find((field) => field.id === "reference_images") ?? null,
+    [schema]
+  );
+  const aspectRatioField = useMemo(
+    () => schema?.fields.find((field) => field.id === "aspect_ratio") ?? null,
+    [schema]
+  );
+  const imageSizeField = useMemo(
+    () => schema?.fields.find((field) => field.id === "image_size") ?? null,
+    [schema]
+  );
+
+  const referenceImages = (formState.reference_images as StudioV2ImageInput[] | undefined) ?? [];
+  const prompt = String(formState.prompt ?? "");
+  const aspectRatio = String(formState.aspect_ratio ?? aspectRatioField?.default ?? "1:1");
+  const imageSize = String(formState.image_size ?? imageSizeField?.default ?? "2K");
 
   const handleGenerate = useCallback(async () => {
     const trimmed = prompt.trim();
     if (!trimmed) {
       textareaRef.current?.focus();
+      setError("Prompt is required");
+      return;
+    }
+    if (!selectedModelId) {
+      setError("No image model is available");
       return;
     }
 
@@ -69,22 +158,23 @@ export default function ImageExplorePanel({
 
     try {
       const token = await getToken();
-      const req: ImagenGenerateRequest = {
+      const req: StudioV2ImageGenerateRequest = {
         prompt: trimmed,
-        model_variant: model,
-        aspect_ratio: aspectRatio,
+        aspect_ratio: aspectRatio as "1:1" | "3:4" | "4:3" | "16:9" | "9:16",
+        image_size: imageSize as "1K" | "2K" | "4K",
         sample_count: sampleCount,
-        enhance_prompt: true,
-        person_generation: "allow_adult",
+        reference_images: referenceImages,
       };
-      const res = await generateImagenImage(req, token);
+      const res = await generateStudioV2Image(selectedModelId, req, token ?? undefined);
 
-      const newImages: GeneratedImageItem[] = res.images.map((img, i) => ({
-        id: `${Date.now()}-${i}`,
+      const modelLabel =
+        models.find((model) => model.model_id === selectedModelId)?.label ?? selectedModelId;
+      const newImages: GeneratedImageItem[] = res.images.map((img, index) => ({
+        id: `${Date.now()}-${index}`,
         bytesBase64: img.bytes_base64_encoded,
         mimeType: img.mime_type,
         prompt: trimmed,
-        modelVariant: model,
+        modelVariant: modelLabel,
         aspectRatio,
         timestamp: new Date().toISOString(),
       }));
@@ -95,7 +185,18 @@ export default function ImageExplorePanel({
     } finally {
       setIsGenerating(false);
     }
-  }, [prompt, model, aspectRatio, sampleCount, images, onImagesChange, getToken]);
+  }, [
+    prompt,
+    selectedModelId,
+    aspectRatio,
+    imageSize,
+    sampleCount,
+    referenceImages,
+    getToken,
+    models,
+    onImagesChange,
+    images,
+  ]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -114,9 +215,8 @@ export default function ImageExplorePanel({
         position: "relative",
       }}
     >
-      {/* Scrollable image grid */}
       <Box sx={{ flex: 1, overflowY: "auto" }}>
-        {isGenerating && images.length === 0 ? (
+        {(isGenerating || isLoadingSchema) && images.length === 0 ? (
           <Box
             sx={{
               flex: 1,
@@ -130,13 +230,13 @@ export default function ImageExplorePanel({
           >
             <CircularProgress size={36} thickness={3} />
             <Typography variant="body2" color="text.secondary">
-              Generating images…
+              {isLoadingSchema ? "Loading image model…" : "Generating images…"}
             </Typography>
           </Box>
         ) : (
           <ImageGallery
             images={images}
-            emptyLabel="Describe an image below and hit Generate"
+            emptyLabel="Describe an image below and attach references if you want to edit from them"
           />
         )}
 
@@ -158,7 +258,6 @@ export default function ImageExplorePanel({
         )}
       </Box>
 
-      {/* Sticky bottom toolbar — matches reference design */}
       <Box
         sx={{
           flexShrink: 0,
@@ -194,19 +293,21 @@ export default function ImageExplorePanel({
             },
           }}
         >
-          {/* Prompt input */}
           <Box sx={{ flex: 1, display: "flex", alignItems: "center", gap: 1 }}>
-            <Tooltip title="Add attachment">
-              <IconButton size="small" sx={{ color: "text.disabled", p: 0.5 }}>
-                <AddIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            {referenceField && (
+              <ImageReferenceTray
+                field={referenceField}
+                value={referenceImages}
+                onChange={(next) => handleFieldChange("reference_images", next)}
+                onError={setError}
+              />
+            )}
             <TextField
               inputRef={textareaRef}
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) => handleFieldChange("prompt", e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Describe the scene you imagine"
+              placeholder="Describe what to generate, or how to transform the attached images"
               multiline
               maxRows={4}
               variant="standard"
@@ -222,7 +323,6 @@ export default function ImageExplorePanel({
             />
           </Box>
 
-          {/* Controls row */}
           <Box
             sx={{
               display: "flex",
@@ -233,62 +333,85 @@ export default function ImageExplorePanel({
               justifyContent: "flex-end",
             }}
           >
-            {/* Model selector */}
             <FormControl size="small">
               <Select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
+                value={selectedModelId}
+                onChange={(e) => setSelectedModelId(e.target.value)}
                 variant="standard"
                 disableUnderline
-                renderValue={(v) => {
-                  const m = IMAGEN_MODELS.find((m) => m.id === v);
+                renderValue={(value) => {
+                  const model = models.find((item) => item.model_id === value);
                   return (
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                       <ImageOutlinedIcon sx={{ fontSize: 13, color: "text.secondary" }} />
                       <Typography variant="caption" fontWeight={600} sx={{ fontSize: 12 }}>
-                        {m?.label ?? v}
+                        {model?.label ?? value}
                       </Typography>
                     </Box>
                   );
                 }}
                 sx={{
                   "& .MuiSelect-select": { py: 0, pr: "20px !important" },
-                  minWidth: 100,
+                  minWidth: 132,
                 }}
               >
-                {IMAGEN_MODELS.map((m) => (
-                  <MenuItem key={m.id} value={m.id} dense>
+                {models.map((model) => (
+                  <MenuItem key={model.model_id} value={model.model_id} dense>
                     <Typography variant="caption" fontWeight={600}>
-                      {m.label}
+                      {model.label}
                     </Typography>
                   </MenuItem>
                 ))}
               </Select>
             </FormControl>
 
-            {/* Aspect ratio */}
-            <FormControl size="small">
-              <Select
-                value={aspectRatio}
-                onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
-                variant="standard"
-                disableUnderline
-                renderValue={(v) => (
-                  <Typography variant="caption" fontWeight={600} sx={{ fontSize: 12 }}>
-                    {v}
-                  </Typography>
-                )}
-                sx={{ "& .MuiSelect-select": { py: 0, pr: "20px !important" }, minWidth: 48 }}
-              >
-                {ASPECT_RATIOS.map((r) => (
-                  <MenuItem key={r.value} value={r.value} dense>
-                    <Typography variant="caption">{r.label}</Typography>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            {aspectRatioField && (
+              <FormControl size="small">
+                <Select
+                  value={aspectRatio}
+                  onChange={(e) => handleFieldChange("aspect_ratio", e.target.value)}
+                  variant="standard"
+                  disableUnderline
+                  renderValue={(value) => (
+                    <Typography variant="caption" fontWeight={600} sx={{ fontSize: 12 }}>
+                      {value}
+                    </Typography>
+                  )}
+                  sx={{ "& .MuiSelect-select": { py: 0, pr: "20px !important" }, minWidth: 52 }}
+                >
+                  {(aspectRatioField.options ?? []).map((option) => (
+                    <MenuItem key={option.value} value={option.value} dense>
+                      <Typography variant="caption">{option.label}</Typography>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
 
-            {/* Sample count pill */}
+            {imageSizeField && (
+              <FormControl size="small">
+                <Select
+                  value={imageSize}
+                  onChange={(e) => handleFieldChange("image_size", e.target.value)}
+                  variant="standard"
+                  disableUnderline
+                  renderValue={(value) => (
+                    <Typography variant="caption" fontWeight={700} sx={{ fontSize: 12 }}>
+                      {value}
+                    </Typography>
+                  )}
+                  sx={{ "& .MuiSelect-select": { py: 0, pr: "20px !important" }, minWidth: 44 }}
+                >
+                  {(imageSizeField.options ?? []).map((option) => (
+                    <MenuItem key={option.value} value={option.value} dense>
+                      <Typography variant="caption">{option.label}</Typography>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+
+            {/* Sample count pill — click cycles 1 → 2 → 3 → 4 → 1 */}
             <Box
               sx={{
                 display: "flex",
@@ -313,7 +436,6 @@ export default function ImageExplorePanel({
               </Typography>
             </Box>
 
-            {/* Generate button */}
             <Box
               onClick={!isGenerating ? handleGenerate : undefined}
               sx={{
@@ -330,9 +452,7 @@ export default function ImageExplorePanel({
                 fontSize: 13,
                 userSelect: "none",
                 transition: "background-color 0.2s",
-                "&:hover": !isGenerating
-                  ? { bgcolor: "primary.dark" }
-                  : {},
+                "&:hover": !isGenerating ? { bgcolor: "primary.dark" } : {},
               }}
             >
               {isGenerating ? (
