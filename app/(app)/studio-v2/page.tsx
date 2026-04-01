@@ -32,6 +32,7 @@ import type {
   StudioV2ModelSummary,
   StudioV2VeoGenerateRequest,
   StudioV2KlingGenerateRequest,
+  KlingShotItem,
 } from "@/lib/api";
 
 const POLL_INTERVAL_MS = 5000;
@@ -58,6 +59,12 @@ const STATIC_MODELS: StudioV2ModelSummary[] = [
     media_type: "video",
     description: "Kling AI v2.6 — high-fidelity video with native audio and Motion Transfer",
   },
+  {
+    model_id: "kling-v3",
+    label: "Kling v3",
+    media_type: "video",
+    description: "Kling AI v3 — 3–15 s video, multi-shot storytelling, native audio, 720p / 1080p",
+  },
 ];
 
 /** Maps UI model IDs to the Vertex AI model_variant string (Veo only). */
@@ -68,11 +75,12 @@ const MODEL_VARIANT_MAP: Record<string, string> = {
 };
 
 /** Kling model IDs — these use the Kling generation path. */
-const KLING_MODEL_IDS = new Set(["kling", "kling-v2-6"]);
+const KLING_MODEL_IDS = new Set(["kling", "kling-v2-6", "kling-v3"]);
 
-/** Schema API key to use — Veo variants share "veo", Kling uses "kling". */
+/** Schema API key to use — Veo variants share "veo"; kling-v3 has its own schema; kling/kling-v2-6 share "kling". */
 function resolveSchemaModelId(modelId: string): string {
   if (modelId in MODEL_VARIANT_MAP) return "veo";
+  if (modelId === "kling-v3") return "kling-v3";
   if (KLING_MODEL_IDS.has(modelId)) return "kling";
   return modelId;
 }
@@ -131,8 +139,15 @@ function formStateToVeoRequest(
   };
 }
 
+/** Maps UI model ID → Kling API model_name string. */
+function resolveKlingModelName(modelId: string | null): string {
+  if (modelId === "kling-v3") return "kling-v3";
+  return "kling-v2-6";
+}
+
 function formStateToKlingRequest(
   formState: Record<string, unknown>,
+  selectedModelId: string | null,
 ): StudioV2KlingGenerateRequest {
   const schemaMode = formState.generation_mode as string | undefined;
   const hasFirstFrame = Boolean(formState.first_frame_image);
@@ -144,7 +159,7 @@ function formStateToKlingRequest(
     generation_mode = hasFirstFrame ? "image_to_video" : "text_to_video";
   }
 
-  return {
+  const base: StudioV2KlingGenerateRequest = {
     prompt: String(formState.prompt ?? ""),
     negative_prompt: formState.negative_prompt
       ? String(formState.negative_prompt)
@@ -162,11 +177,33 @@ function formStateToKlingRequest(
     motion_reference_video_base64: formState.motion_reference_video
       ? String(formState.motion_reference_video)
       : undefined,
+    model_name: resolveKlingModelName(selectedModelId),
     aspect_ratio: (formState.aspect_ratio as "16:9" | "9:16" | "1:1") ?? "16:9",
     duration: Number(formState.duration_seconds) || 5,
     mode: (formState.mode as "std" | "pro") ?? "std",
     generate_audio: Boolean(formState.generate_audio ?? false),
   };
+
+  // Multi-shot (kling-v3 only)
+  if (formState.multi_shot_enabled === true) {
+    const shots: KlingShotItem[] = [];
+    for (let i = 1; i <= 6; i++) {
+      const shotPrompt = formState[`shot_${i}_prompt`];
+      const shotDuration = formState[`shot_${i}_duration`];
+      if (shotPrompt && String(shotPrompt).trim()) {
+        shots.push({
+          prompt: String(shotPrompt).trim(),
+          duration: Number(shotDuration) || 5,
+        });
+      }
+    }
+    if (shots.length > 0) {
+      base.multi_shot = true;
+      base.shots = shots;
+    }
+  }
+
+  return base;
 }
 
 /** Fetch an image from a URL and return its raw base64 string (no data-URL prefix). */
@@ -472,7 +509,7 @@ export default function StudioV2Page() {
       let newJobId: string;
 
       if (isKling) {
-        const body = formStateToKlingRequest(formState);
+        const body = formStateToKlingRequest(formState, selectedModelId);
         if (referenceBase64List.length > 0) {
           body.reference_images_base64 = referenceBase64List;
         }
@@ -628,7 +665,11 @@ export default function StudioV2Page() {
     jobStatus === "processing" ||
     jobStatus === "pending";
 
-  const promptFields = schema?.fields.filter((f) => f.group === "prompt") ?? [];
+  const allPromptFields = schema?.fields.filter((f) => f.group === "prompt") ?? [];
+  const promptFields = allPromptFields.filter((f) => {
+    if (!f.visible_when) return true;
+    return Object.entries(f.visible_when).every(([k, v]) => formState[k] === v);
+  });
 
   if (!isLoaded || !userId) {
     return (

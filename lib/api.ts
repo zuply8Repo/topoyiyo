@@ -1125,6 +1125,11 @@ export async function generateStudioV2Veo(
   return response.json();
 }
 
+export interface KlingShotItem {
+  prompt: string;
+  duration: number;
+}
+
 export interface StudioV2KlingGenerateRequest {
   prompt: string;
   negative_prompt?: string;
@@ -1134,10 +1139,13 @@ export interface StudioV2KlingGenerateRequest {
   character_image_base64?: string;
   motion_reference_video_base64?: string;
   reference_images_base64?: string[];
+  model_name?: string;
   aspect_ratio?: "16:9" | "9:16" | "1:1";
   duration?: number;
   mode?: "std" | "pro";
   generate_audio?: boolean;
+  multi_shot?: boolean;
+  shots?: KlingShotItem[];
 }
 
 export interface StudioV2KlingGenerateResponse {
