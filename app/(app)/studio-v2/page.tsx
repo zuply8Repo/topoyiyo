@@ -28,19 +28,38 @@ import {
   downloadStudioV2JobVideo,
 } from "@/lib/api";
 import type {
+  StudioV2FieldSchema,
   StudioV2ModelSchema,
   StudioV2ModelSummary,
   StudioV2VeoGenerateRequest,
   StudioV2KlingGenerateRequest,
   KlingShotItem,
 } from "@/lib/api";
+import {
+  buildKlingMultiImagePrompt,
+  resolveMentionedElementsWithTokensInOrder,
+} from "@/lib/studioV2Mentions";
 
 const POLL_INTERVAL_MS = 5000;
 const EXAMPLE_VIDEO_URL =
   "https://drdhjfxoqaxcjolegdya.supabase.co/storage/v1/object/public/generated-videos/videos/6940b42f-6521-40af-b031-5539e3c4b6e6/story_video_3_pgzgndh9m768.mp4";
 
+const DEFAULT_MODEL_ID = "kling-v3";
+
 /** Static model entries always shown in the model selector. */
 const STATIC_MODELS: StudioV2ModelSummary[] = [
+  {
+    model_id: "kling-v3",
+    label: "Kling v3",
+    media_type: "video",
+    description: "Kling AI v3 — 3–15 s video, multi-shot storytelling, native audio, 720p / 1080p",
+  },
+  {
+    model_id: "kling",
+    label: "Kling v2.6",
+    media_type: "video",
+    description: "Kling AI v2.6 — high-fidelity video with native audio and Motion Transfer",
+  },
   {
     model_id: "veo-3.1-generate-001",
     label: "Veo 3.1",
@@ -52,18 +71,6 @@ const STATIC_MODELS: StudioV2ModelSummary[] = [
     label: "Veo 3.1 Fast",
     media_type: "video",
     description: "Veo 3.1 Fast Generate 001 — faster, lighter generation",
-  },
-  {
-    model_id: "kling",
-    label: "Kling v2.6",
-    media_type: "video",
-    description: "Kling AI v2.6 — high-fidelity video with native audio and Motion Transfer",
-  },
-  {
-    model_id: "kling-v3",
-    label: "Kling v3",
-    media_type: "video",
-    description: "Kling AI v3 — 3–15 s video, multi-shot storytelling, native audio, 720p / 1080p",
   },
 ];
 
@@ -90,7 +97,21 @@ export interface SavedJob {
   prompt: string;
   timestamp: string;
   status: "completed" | "failed";
+  /** Ephemeral blob URL for in-session playback before upload completes. */
   blobUrl?: string;
+  /** Permanent Supabase Storage public URL after upload. */
+  videoUrl?: string;
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function inferImageMimeFromBase64(b64: string): string {
+  const raw = b64.includes(",") ? b64.split(",")[1] : b64;
+  const head = raw.slice(0, 8);
+  if (head.startsWith("/9j")) return "image/jpeg";
+  if (head.startsWith("iVBOR")) return "image/png";
+  return "image/png";
 }
 
 function buildDefaultFormState(schema: StudioV2ModelSchema): Record<string, unknown> {
@@ -99,6 +120,72 @@ function buildDefaultFormState(schema: StudioV2ModelSchema): Record<string, unkn
     state[field.id] = field.default ?? (field.type === "boolean" ? false : "");
   }
   return state;
+}
+
+/** When switching models, keep user input for fields that exist in the new schema and remain valid. */
+function isValidForField(field: StudioV2FieldSchema, value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  switch (field.type) {
+    case "boolean":
+      return typeof value === "boolean";
+    case "number": {
+      const n = typeof value === "number" ? value : Number(value);
+      return !Number.isNaN(n);
+    }
+    case "text":
+    case "textarea":
+      return typeof value === "string" || typeof value === "number";
+    case "select": {
+      if (field.options && field.options.length > 0) {
+        const v = String(value);
+        return field.options.some((o) => o.value === v);
+      }
+      return typeof value === "string" || typeof value === "number";
+    }
+    case "image":
+    case "file":
+    case "video_upload":
+      return typeof value === "string" && value.length > 0;
+    case "image_array":
+      return Array.isArray(value);
+    default:
+      return false;
+  }
+}
+
+function normalizeMergedValue(field: StudioV2FieldSchema, value: unknown): unknown {
+  switch (field.type) {
+    case "number": {
+      const n = typeof value === "number" ? value : Number(value);
+      let v = n;
+      if (field.min != null) v = Math.max(field.min, v);
+      if (field.max != null) v = Math.min(field.max, v);
+      return v;
+    }
+    case "text":
+    case "textarea":
+      return typeof value === "string" ? value : String(value ?? "");
+    case "select":
+      return String(value);
+    default:
+      return value;
+  }
+}
+
+function mergeFormStateWithSchema(
+  prev: Record<string, unknown>,
+  schema: StudioV2ModelSchema
+): Record<string, unknown> {
+  const next = buildDefaultFormState(schema);
+  for (const field of schema.fields) {
+    if (!Object.prototype.hasOwnProperty.call(prev, field.id)) continue;
+    const prevVal = prev[field.id];
+    if (prevVal === undefined) continue;
+    if (isValidForField(field, prevVal)) {
+      next[field.id] = normalizeMergedValue(field, prevVal);
+    }
+  }
+  return next;
 }
 
 function formStateToVeoRequest(
@@ -152,7 +239,7 @@ function formStateToKlingRequest(
   const schemaMode = formState.generation_mode as string | undefined;
   const hasFirstFrame = Boolean(formState.first_frame_image);
 
-  let generation_mode: "text_to_video" | "image_to_video" | "motion_transfer";
+  let generation_mode: "text_to_video" | "image_to_video" | "multi_image_to_video" | "motion_transfer";
   if (schemaMode === "motion_transfer") {
     generation_mode = "motion_transfer";
   } else {
@@ -181,7 +268,10 @@ function formStateToKlingRequest(
     aspect_ratio: (formState.aspect_ratio as "16:9" | "9:16" | "1:1") ?? "16:9",
     duration: Number(formState.duration_seconds) || 5,
     mode: (formState.mode as "std" | "pro") ?? "std",
-    generate_audio: Boolean(formState.generate_audio ?? false),
+    // kling-v3: default native audio on when unset (matches model schema); kling v2.6 defaults off.
+    generate_audio: Boolean(
+      formState.generate_audio ?? selectedModelId === "kling-v3",
+    ),
   };
 
   // Multi-shot (kling-v3 only)
@@ -256,6 +346,9 @@ export default function StudioV2Page() {
 
   // Track which DB job IDs we've already saved to avoid duplicate POSTs
   const savedJobIdsRef = useRef<Set<string>>(new Set());
+  /** Provider job IDs whose finished video bytes were uploaded to Supabase Storage. */
+  const videoPersistedRef = useRef<Set<string>>(new Set());
+  const videoUploadInflightRef = useRef<Set<string>>(new Set());
 
   // ---------------------------------------------------------------------------
   // Load jobs and elements from DB on mount
@@ -276,6 +369,7 @@ export default function StudioV2Page() {
             prompt: string;
             created_at: string;
             status: string;
+            video_url?: string | null;
           }> };
           const loaded: SavedJob[] = jobs
             .filter((j) => j.status === "completed" || j.status === "failed")
@@ -284,6 +378,7 @@ export default function StudioV2Page() {
               prompt: j.prompt,
               timestamp: j.created_at,
               status: j.status as "completed" | "failed",
+              videoUrl: j.video_url ?? undefined,
             }));
           setSavedJobs(loaded);
           loaded.forEach((j) => savedJobIdsRef.current.add(j.job_id));
@@ -346,13 +441,14 @@ export default function StudioV2Page() {
           ];
           setModels(merged);
           if (merged.length > 0 && !selectedModelId) {
-            setSelectedModelId(merged[0].model_id);
+            const preferred = merged.find((m) => m.model_id === DEFAULT_MODEL_ID);
+            setSelectedModelId((preferred ?? merged[0]).model_id);
           }
         }
       } catch (e) {
         if (!cancelled) {
           setModels(STATIC_MODELS);
-          if (!selectedModelId) setSelectedModelId(STATIC_MODELS[0].model_id);
+          if (!selectedModelId) setSelectedModelId(DEFAULT_MODEL_ID);
           setLoadError(e instanceof Error ? e.message : "Failed to load models");
         }
       }
@@ -375,7 +471,8 @@ export default function StudioV2Page() {
         const s = await getStudioV2ModelSchema(schemaId, token ?? undefined);
         if (!cancelled) {
           setSchema(s);
-          setFormState(buildDefaultFormState(s));
+          setFormState((prev) => mergeFormStateWithSchema(prev, s));
+          setErrors({});
         }
       } catch (e) {
         if (!cancelled) {
@@ -418,7 +515,9 @@ export default function StudioV2Page() {
                 category: newEl.category,
                 pinned: newEl.pinned,
                 imageBase64: newEl.imageBase64 || undefined,
-                imageMimeType: "image/png",
+                imageMimeType: newEl.imageBase64
+                  ? inferImageMimeFromBase64(newEl.imageBase64)
+                  : undefined,
               }),
             });
             if (res.ok) {
@@ -442,7 +541,7 @@ export default function StudioV2Page() {
             });
           }
         } else {
-          // Element updated (pin/unpin or other change)
+          // Element updated (metadata and/or image)
           const changedEl = updated.find((el) => {
             const prevEl = prev.find((p) => p.id === el.id);
             return prevEl && (
@@ -462,6 +561,33 @@ export default function StudioV2Page() {
                 category: changedEl.category,
               }),
             });
+          }
+
+          const imageEl = updated.find((el) => {
+            const prevEl = prev.find((p) => p.id === el.id);
+            if (!prevEl || !el.imageBase64 || !UUID_RE.test(el.id)) return false;
+            return prevEl.imageBase64 !== el.imageBase64;
+          });
+          if (imageEl) {
+            const res = await fetch("/api/studio-v2/elements", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: imageEl.id,
+                imageBase64: imageEl.imageBase64,
+                imageMimeType: inferImageMimeFromBase64(imageEl.imageBase64),
+              }),
+            });
+            if (res.ok) {
+              const { element } = await res.json() as { element: { imageUrl: string | null } };
+              setElements((curr) =>
+                curr.map((el) =>
+                  el.id === imageEl.id
+                    ? { ...el, imageUrl: element.imageUrl ?? undefined, imageBase64: "" }
+                    : el
+                )
+              );
+            }
           }
         }
       } catch (e) {
@@ -494,25 +620,66 @@ export default function StudioV2Page() {
     try {
       const token = await getToken();
 
-      // Resolve @mentioned elements, fetching base64 from URL if needed
+      // Resolve @mentioned elements (first-appearance order, max 3), fetch base64
       const promptText = String(formState.prompt ?? "");
-      const mentionedElements = [...new Set(promptText.match(/@[\w_]+/g) ?? [])]
-        .map((m) => elements.find((el) => el.name === m.slice(1)))
-        .filter((el): el is StudioElement => Boolean(el?.imageBase64 || el?.imageUrl));
+      const { elements: mentionedElements, tokens: mentionTokens } =
+        resolveMentionedElementsWithTokensInOrder(promptText, elements);
 
       const referenceBase64List = (
         await Promise.all(
-          mentionedElements.slice(0, 3).map((el) => resolveElementBase64(el))
+          mentionedElements.map((el) => resolveElementBase64(el as StudioElement))
         )
       ).filter((b): b is string => Boolean(b));
+
+      // Collect public Supabase URLs for mentioned elements (preferred over base64 for Kling v3 I2V)
+      const referenceUrlList = mentionedElements
+        .map((el) => (el as StudioElement).imageUrl)
+        .filter((u): u is string => Boolean(u));
 
       let newJobId: string;
 
       if (isKling) {
         const body = formStateToKlingRequest(formState, selectedModelId);
-        if (referenceBase64List.length > 0) {
-          body.reference_images_base64 = referenceBase64List;
+
+        const hasFirstFrame = Boolean(formState.first_frame_image);
+        const hasLastFrame = Boolean(formState.last_frame_image);
+        const hasFrame = hasFirstFrame || hasLastFrame;
+        const hasMentionedImages =
+          referenceUrlList.length > 0 || referenceBase64List.length > 0;
+
+        if (hasFrame) {
+          // ── Image-to-video via omni-video: frame drives generation.
+          // omni-video supports both frames (type: first_frame/end_frame) AND
+          // reference images (no type) in the same image_list — include them.
+          body.generation_mode = "image_to_video";
+          if (selectedModelId === "kling-v3" && hasMentionedImages) {
+            body.prompt = buildKlingMultiImagePrompt(promptText, mentionTokens);
+            if (referenceUrlList.length > 0) {
+              body.reference_image_urls = referenceUrlList;
+            }
+            if (referenceBase64List.length > 0) {
+              body.reference_images_base64 = referenceBase64List;
+            }
+          }
+        } else if (selectedModelId === "kling-v3" && hasMentionedImages) {
+          // ── Multi-image-to-video: no frame, but element references present.
+          // Rewrite @mention-slug → <<<image_N>>> and send via image_list[].
+          body.generation_mode = "multi_image_to_video";
+          body.prompt = buildKlingMultiImagePrompt(promptText, mentionTokens);
+          if (referenceUrlList.length > 0) {
+            body.reference_image_urls = referenceUrlList;
+          }
+          if (referenceBase64List.length > 0) {
+            body.reference_images_base64 = referenceBase64List;
+          }
+        } else {
+          // ── Text-to-video (or non-v3 with reference images)
+          body.generation_mode = "text_to_video";
+          if (referenceBase64List.length > 0) {
+            body.reference_images_base64 = referenceBase64List;
+          }
         }
+
         const res = await generateStudioV2Kling(body, token ?? undefined);
         newJobId = res.job_id;
       } else {
@@ -621,31 +788,69 @@ export default function StudioV2Page() {
   }, [videoUrl, getToken]);
 
   // ---------------------------------------------------------------------------
-  // Persist completed job to DB + state
+  // Persist completed video to Supabase Storage + DB, keep UI list in sync
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!userId || !jobId || jobStatus !== "completed" || !resolvedVideoUrl) return;
+    if (videoPersistedRef.current.has(jobId)) return;
+    if (videoUploadInflightRef.current.has(jobId)) return;
 
-    setSavedJobs((prev) => {
-      if (prev.find((j) => j.job_id === jobId)) return prev;
-      return [
-        {
-          job_id: jobId,
-          prompt: String(formState.prompt ?? ""),
-          timestamp: new Date().toISOString(),
-          status: "completed",
-          blobUrl: resolvedVideoUrl,
-        },
-        ...prev,
-      ];
-    });
+    let cancelled = false;
+    videoUploadInflightRef.current.add(jobId);
 
-    // Update status in DB (fire-and-forget)
-    fetch("/api/studio-v2/jobs", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider_job_id: jobId, status: "completed" }),
-    }).catch((e) => console.warn("[studio-v2] job update failed", e));
+    (async () => {
+      setSavedJobs((prev) => {
+        if (prev.find((j) => j.job_id === jobId)) return prev;
+        return [
+          {
+            job_id: jobId,
+            prompt: String(formState.prompt ?? ""),
+            timestamp: new Date().toISOString(),
+            status: "completed",
+            blobUrl: resolvedVideoUrl,
+          },
+          ...prev,
+        ];
+      });
+
+      try {
+        const blob = await fetch(resolvedVideoUrl).then((r) => r.blob());
+        if (cancelled) return;
+
+        const fd = new FormData();
+        fd.append("file", blob, "video.mp4");
+        fd.append("provider_job_id", jobId);
+        const res = await fetch("/api/studio-v2/jobs/video", { method: "POST", body: fd });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(errText || res.statusText);
+        }
+        const { videoUrl } = await res.json() as { videoUrl: string };
+        if (cancelled) return;
+        videoPersistedRef.current.add(jobId);
+        setSavedJobs((prev) =>
+          prev.map((j) =>
+            j.job_id === jobId
+              ? { ...j, videoUrl, blobUrl: undefined }
+              : j
+          )
+        );
+      } catch (e) {
+        console.warn("[studio-v2] video persist failed, keeping blob + marking job completed", e);
+        if (cancelled) return;
+        fetch("/api/studio-v2/jobs", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider_job_id: jobId, status: "completed" }),
+        }).catch((err) => console.warn("[studio-v2] job status PATCH failed", err));
+      } finally {
+        videoUploadInflightRef.current.delete(jobId);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [userId, jobId, jobStatus, resolvedVideoUrl, formState.prompt]);
 
   // ---------------------------------------------------------------------------
@@ -696,6 +901,8 @@ export default function StudioV2Page() {
           flexShrink: 0,
           display: "flex",
           flexDirection: "column",
+          pt: { xs: 0, md: 3 },
+          pb: { xs: 0, md: 1.25 },
           borderRight: "1px solid",
           borderColor: "divider",
           overflow: "hidden",
@@ -710,8 +917,9 @@ export default function StudioV2Page() {
         {/* Video preview */}
         <Box
           sx={{
+            position: "relative",
             mx: 1.5,
-            mt: 1.5,
+            mt: { xs: 1.5, md: 0 },
             mb: 0.5,
             flexShrink: 0,
             borderRadius: 3,
@@ -729,12 +937,18 @@ export default function StudioV2Page() {
             playsInline
             sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
           />
+          <ModelSelector
+            variant="overlay"
+            models={models}
+            selectedModelId={selectedModelId}
+            onSelect={setSelectedModelId}
+          />
         </Box>
 
         {schema && (
           <>
             {/* Media upload cards */}
-            <Box sx={{ px: 1.5, pt: 1.5, flexShrink: 0 }}>
+            <Box sx={{ px: 1.5, pt: { xs: 1.5, md: 1.25 }, flexShrink: 0 }}>
               <MediaInputPanel
                 fields={schema.fields}
                 formState={formState}
@@ -744,9 +958,28 @@ export default function StudioV2Page() {
             </Box>
 
             {/* Prompt fields */}
-            <Box sx={{ flex: 1, display: "flex", flexDirection: "column", px: 1.5, pt: 1, minHeight: 0 }}>
-              <Stack spacing={1} sx={{ flex: 1 }}>
+            <Box
+              sx={{
+                flex: { xs: 1, md: "0 0 auto" },
+                display: "flex",
+                flexDirection: "column",
+                px: 1.5,
+                pt: { xs: 1, md: 0.75 },
+                minHeight: 0,
+              }}
+            >
+              <Stack spacing={{ xs: 1, md: 0.75 }} sx={{ flex: { xs: 1, md: "0 0 auto" }, minHeight: 0 }}>
                 {promptFields.map((field) =>
+                  field.id === "negative_prompt" ? (
+                    <Box key={field.id} sx={{ display: { xs: "block", md: "none" } }}>
+                      <SchemaFieldRenderer
+                        field={field}
+                        value={formState[field.id]}
+                        onChange={handleFieldChange}
+                        error={errors[field.id]}
+                      />
+                    </Box>
+                  ) :
                   field.id === "prompt" ? (
                     <PromptField
                       key={field.id}
@@ -772,17 +1005,8 @@ export default function StudioV2Page() {
               </Stack>
             </Box>
 
-            {/* Model selector */}
-            <Box sx={{ px: 1.5, pt: 1, flexShrink: 0 }}>
-              <ModelSelector
-                models={models}
-                selectedModelId={selectedModelId}
-                onSelect={setSelectedModelId}
-              />
-            </Box>
-
             {/* Generation settings */}
-            <Box sx={{ px: 1.5, pt: 1, flexShrink: 0 }}>
+            <Box sx={{ px: 1.5, pt: { xs: 1, md: 0.5 }, pb: { xs: 0, md: 0.25 }, flexShrink: 0 }}>
               <GenerationSettingsPanel
                 fields={schema.fields}
                 formState={formState}
@@ -803,8 +1027,10 @@ export default function StudioV2Page() {
         {/* Sticky generate button */}
         <Box
           sx={{
-            p: 1.5,
-            mt: "auto",
+            px: 1.5,
+            pt: { xs: 1.5, md: 0.75 },
+            pb: 1.5,
+            mt: { xs: "auto", md: 0 },
             flexShrink: 0,
             borderTop: "1px solid",
             borderColor: "divider",
@@ -867,6 +1093,25 @@ export default function StudioV2Page() {
               prev.map((j) => (j.job_id === jId ? { ...j, blobUrl } : j))
             )
           }
+          onPersistVideoFromBlob={async (jId: string, blob: Blob) => {
+            if (videoPersistedRef.current.has(jId)) return;
+            try {
+              const fd = new FormData();
+              fd.append("file", blob, "video.mp4");
+              fd.append("provider_job_id", jId);
+              const res = await fetch("/api/studio-v2/jobs/video", { method: "POST", body: fd });
+              if (!res.ok) return;
+              const { videoUrl } = await res.json() as { videoUrl: string };
+              videoPersistedRef.current.add(jId);
+              setSavedJobs((prev) =>
+                prev.map((j) =>
+                  j.job_id === jId ? { ...j, videoUrl, blobUrl: undefined } : j
+                )
+              );
+            } catch {
+              /* keep blob URL for playback */
+            }
+          }}
         />
       </Box>
     </Box>

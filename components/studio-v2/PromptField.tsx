@@ -14,6 +14,7 @@ import {
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import AppsOutlinedIcon from "@mui/icons-material/AppsOutlined";
 import type { StudioV2FieldSchema } from "@/lib/api";
+import { extractMentionTokens } from "@/lib/studioV2Mentions";
 import ElementsPanel, { type StudioElement } from "./ElementsPanel";
 
 interface PromptFieldProps {
@@ -90,8 +91,15 @@ export default function PromptField({
         inputRef={textareaRef}
         InputProps={{
           sx: {
+            minHeight: { xs: "auto", md: "170px" },
+            alignItems: "stretch",
             // Reserve room at the bottom-right for the floating buttons
-            "& textarea": { paddingBottom: "32px" },
+            "& textarea": {
+              minHeight: { xs: "80px", md: "138px" },
+              maxHeight: { xs: "none", md: "138px" },
+              overflowY: { xs: "hidden", md: "auto !important" },
+              paddingBottom: "32px",
+            },
           },
         }}
       />
@@ -100,7 +108,7 @@ export default function PromptField({
       <Box
         sx={{
           position: "absolute",
-          bottom: hasHelperText ? 26 : 8,
+          bottom: { xs: hasHelperText ? 26 : 8, md: 8 },
           right: 8,
           display: "flex",
           alignItems: "center",
@@ -168,7 +176,7 @@ export default function PromptField({
 
       {/* Inline @mention chips preview row */}
       {(() => {
-        const mentions = [...new Set((value ?? "").match(/@[\w_]+/g) ?? [])];
+        const mentions = extractMentionTokens(value ?? "");
         const referenced = (
           mentions
             .map((m) => elements.find((el) => el.name === m.slice(1)))
@@ -221,7 +229,13 @@ export default function PromptField({
       })()}
 
       {(error ?? field.help_text) && (
-        <FormHelperText error={Boolean(error)} sx={{ mx: "14px" }}>
+        <FormHelperText
+          error={Boolean(error)}
+          sx={{
+            mx: "14px",
+            display: error ? "block" : { xs: "block", md: "none" },
+          }}
+        >
           {error ?? field.help_text}
         </FormHelperText>
       )}

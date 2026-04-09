@@ -22,6 +22,14 @@ function makeSupabase() {
   });
 }
 
+const VIDEO_BUCKET = "studio-videos";
+
+function videoPublicUrl(supabase: ReturnType<typeof makeSupabase>, path: string | null): string | null {
+  if (!path) return null;
+  const { data } = supabase.storage.from(VIDEO_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/studio-v2/jobs
 // ---------------------------------------------------------------------------
@@ -42,7 +50,12 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ jobs: data ?? [] });
+  const jobs = (data ?? []).map((row) => ({
+    ...row,
+    video_url: videoPublicUrl(supabase, row.video_storage_path),
+  }));
+
+  return NextResponse.json({ jobs });
 }
 
 // ---------------------------------------------------------------------------

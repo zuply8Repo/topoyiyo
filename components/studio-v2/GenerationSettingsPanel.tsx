@@ -129,8 +129,11 @@ export default function GenerationSettingsPanel({
         sx={{
           display: "flex",
           alignItems: "center",
-          gap: 0.5,
+          width: "100%",
+          columnGap: { xs: 0.5, md: 1 },
+          rowGap: 0.5,
           flexWrap: "wrap",
+          justifyContent: { xs: "flex-start", md: "space-between" },
         }}
       >
         {/* Generation mode (Kling only) */}
@@ -160,7 +163,7 @@ export default function GenerationSettingsPanel({
                 </ToggleButton>
               </Tooltip>
             </ToggleButtonGroup>
-            <Divider orientation="vertical" flexItem sx={{ my: 0.25 }} />
+            <Divider orientation="vertical" flexItem sx={dividerSx} />
           </>
         )}
 
@@ -193,7 +196,7 @@ export default function GenerationSettingsPanel({
           </ToggleButtonGroup>
         )}
 
-        {aspectField && durationField && <Divider orientation="vertical" flexItem sx={{ my: 0.25 }} />}
+        {aspectField && durationField && <Divider orientation="vertical" flexItem sx={dividerSx} />}
 
         {/* Duration */}
         {durationField && (
@@ -217,7 +220,7 @@ export default function GenerationSettingsPanel({
           </ToggleButtonGroup>
         )}
 
-        {durationField && resolutionField && <Divider orientation="vertical" flexItem sx={{ my: 0.25 }} />}
+        {durationField && resolutionField && <Divider orientation="vertical" flexItem sx={dividerSx} />}
 
         {/* Resolution */}
         {resolutionField && (
@@ -241,7 +244,7 @@ export default function GenerationSettingsPanel({
         )}
 
         {resolutionField && (modeField || audioField || personField) && (
-          <Divider orientation="vertical" flexItem sx={{ my: 0.25 }} />
+          <Divider orientation="vertical" flexItem sx={dividerSx} />
         )}
 
         {/* Quality mode (Kling: std/pro) */}
@@ -271,7 +274,7 @@ export default function GenerationSettingsPanel({
         )}
 
         {modeField && (audioField || personField) && (
-          <Divider orientation="vertical" flexItem sx={{ my: 0.25 }} />
+          <Divider orientation="vertical" flexItem sx={dividerSx} />
         )}
 
         {/* Audio toggle */}
@@ -351,7 +354,7 @@ export default function GenerationSettingsPanel({
         {/* Advanced settings toggle */}
         {advancedFields.length > 0 && (
           <>
-            <Divider orientation="vertical" flexItem sx={{ my: 0.25 }} />
+            <Divider orientation="vertical" flexItem sx={dividerSx} />
             <Tooltip title="Advanced settings">
               <IconButton
                 size="small"
@@ -420,6 +423,11 @@ const chipGroupSx = {
     borderColor: "divider",
     "&:not(:first-of-type)": { borderLeft: "1px solid", borderColor: "divider" },
   },
+};
+
+const dividerSx = {
+  my: 0.25,
+  display: { xs: "flex", md: "none" },
 };
 
 const chipSx = {

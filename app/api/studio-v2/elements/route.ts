@@ -3,7 +3,7 @@
  *
  * GET    — list all elements for the authenticated user
  * POST   — create a new element; uploads the image to Supabase Storage
- * PATCH  — update an element (pin/unpin, rename, category change)
+ * PATCH  — update an element (pin/unpin, rename, category, replace image)
  * DELETE — delete an element and its storage image
  *          Query param: ?id=<element-uuid>
  */
@@ -65,6 +65,17 @@ async function uploadElementImage(
 function getPublicUrl(supabase: ReturnType<typeof makeSupabase>, path: string): string {
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   return data.publicUrl;
+}
+
+/** Guess MIME type from raw base64 payload (first bytes as base64 text). */
+function inferImageMimeFromBase64(base64: string): string {
+  const raw = base64.includes(",") ? base64.split(",")[1] : base64;
+  const head = raw.slice(0, 16);
+  if (head.startsWith("/9j")) return "image/jpeg";
+  if (head.startsWith("iVBOR")) return "image/png";
+  if (head.startsWith("R0lGOD")) return "image/gif";
+  if (head.startsWith("UklGR")) return "image/webp";
+  return "image/png";
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +157,7 @@ export async function POST(req: Request) {
         userId,
         inserted.id,
         imageBase64,
-        imageMimeType ?? "image/png"
+        imageMimeType ?? inferImageMimeFromBase64(imageBase64)
       );
 
       // Update the record with the storage path
@@ -172,13 +183,20 @@ export async function POST(req: Request) {
 
 // ---------------------------------------------------------------------------
 // PATCH /api/studio-v2/elements
-// Body: { id, pinned?, name?, category? }
+// Body: { id, pinned?, name?, category?, imageBase64?, imageMimeType? }
 // ---------------------------------------------------------------------------
 export async function PATCH(req: Request) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  let body: { id: string; pinned?: boolean; name?: string; category?: string };
+  let body: {
+    id: string;
+    pinned?: boolean;
+    name?: string;
+    category?: string;
+    imageBase64?: string;
+    imageMimeType?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -188,13 +206,29 @@ export async function PATCH(req: Request) {
   const { id, ...rest } = body;
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
+  const supabase = makeSupabase();
+  await ensureBucket(supabase);
+
   const allowed: Record<string, unknown> = {};
   if (rest.pinned !== undefined) allowed.pinned = rest.pinned;
   if (rest.name !== undefined) allowed.name = rest.name.trim();
   if (rest.category !== undefined) allowed.category = rest.category;
   allowed.updated_at = new Date().toISOString();
 
-  const supabase = makeSupabase();
+  if (rest.imageBase64) {
+    try {
+      const mime = rest.imageMimeType ?? inferImageMimeFromBase64(rest.imageBase64);
+      const path = await uploadElementImage(supabase, userId, id, rest.imageBase64, mime);
+      allowed.image_storage_path = path;
+    } catch (e) {
+      console.error("[studio-v2/elements PATCH upload]", e);
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "Image upload failed" },
+        { status: 500 }
+      );
+    }
+  }
+
   const { data, error } = await supabase
     .from("studio_v2_elements")
     .update(allowed)

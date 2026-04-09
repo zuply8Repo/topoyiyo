@@ -1133,12 +1133,14 @@ export interface KlingShotItem {
 export interface StudioV2KlingGenerateRequest {
   prompt: string;
   negative_prompt?: string;
-  generation_mode?: "text_to_video" | "image_to_video" | "motion_transfer";
+  generation_mode?: "text_to_video" | "image_to_video" | "multi_image_to_video" | "motion_transfer";
   first_frame_image_base64?: string;
   last_frame_image_base64?: string;
   character_image_base64?: string;
   motion_reference_video_base64?: string;
   reference_images_base64?: string[];
+  /** Public HTTPS URLs for element images — preferred over base64 for Kling v3 I2V */
+  reference_image_urls?: string[];
   model_name?: string;
   aspect_ratio?: "16:9" | "9:16" | "1:1";
   duration?: number;
