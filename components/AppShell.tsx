@@ -1,6 +1,5 @@
 "use client";
 
-import { getCreditBalance } from "@/lib/api";
 import { resetAllDemoData } from "@/lib/store";
 import { useAuth, useClerk, useUser } from "@clerk/nextjs";
 import {
@@ -27,6 +26,7 @@ import RateReviewIcon from "@mui/icons-material/RateReview";
 import CreditCardIcon from "@mui/icons-material/CreditCard";
 import VideoLibraryIcon from "@mui/icons-material/VideoLibrary";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 
@@ -41,36 +41,27 @@ const nav = [
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { userId, isLoaded, getToken } = useAuth();
+  const { userId, isLoaded } = useAuth();
   const { user } = useUser();
   const { signOut } = useClerk();
-  const [credits, setCredits] = React.useState<number | null>(null);
-  const [creditsLoading, setCreditsLoading] = React.useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!userId || !isLoaded) {
-      setCreditsLoading(false);
-      return;
-    }
-    let cancelled = false;
-    const load = async () => {
-      setCreditsLoading(true);
-      try {
-        const token = await getToken();
-        const balance = await getCreditBalance(token ?? undefined);
-        if (!cancelled) setCredits(balance);
-      } catch {
-        if (!cancelled) setCredits(0);
-      } finally {
-        if (!cancelled) setCreditsLoading(false);
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, isLoaded, getToken]);
+  const roleValue = (user?.publicMetadata as Record<string, unknown> | undefined)?.role;
+  const rolesValue = (user?.publicMetadata as Record<string, unknown> | undefined)?.roles;
+  const normalizedRoles = new Set(
+    [
+      typeof roleValue === "string" ? roleValue : null,
+      ...(Array.isArray(rolesValue) ? rolesValue.map((item) => String(item)) : []),
+    ]
+      .filter(Boolean)
+      .map((item) => String(item).trim().toLowerCase())
+  );
+  const isAdminUser =
+    normalizedRoles.has("admin") ||
+    normalizedRoles.has("developer") ||
+    pathname.startsWith("/admin");
+  const navigation = isAdminUser
+    ? [...nav, { label: "Admin", href: "/admin/billing", icon: AdminPanelSettingsIcon }]
+    : nav;
 
   const handleSignOut = async () => {
     await signOut({ redirectUrl: "/sign-in" });
@@ -134,7 +125,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   spacing={1}
                   sx={{ display: { xs: "none", sm: "flex" } }}
                 >
-                  {nav.map((n) => (
+                  {navigation.map((n) => (
                     <Button
                       key={n.href}
                       onClick={() => router.push(n.href)}
@@ -153,58 +144,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </Stack>
 
               <Stack direction="row" spacing={1.5} alignItems="center">
-                {isLoaded && userId && (
-                  <IconButton
-                    aria-label="View credits and billing"
-                    onClick={() => router.push("/billing")}
-                    sx={{
-                      width: 44,
-                      height: 44,
-                      p: 0,
-                      border: "2px solid",
-                      borderColor: "primary.main",
-                      background: (t) =>
-                        `linear-gradient(135deg, ${t.palette.primary.dark}22 0%, ${t.palette.primary.main}18 100%)`,
-                      "&:hover": {
-                        background: (t) =>
-                          `linear-gradient(135deg, ${t.palette.primary.dark}33 0%, ${t.palette.primary.main}28 100%)`,
-                        borderColor: "primary.dark",
-                      },
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          fontWeight: 900,
-                          fontSize: "0.8rem",
-                          lineHeight: 1.1,
-                          color: "primary.main",
-                        }}
-                      >
-                        {creditsLoading ? "—" : Math.round(credits ?? 0)}
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          fontWeight: 700,
-                          fontSize: "0.55rem",
-                          color: "text.secondary",
-                          letterSpacing: "0.05em",
-                        }}
-                      >
-                        CR
-                      </Typography>
-                    </Box>
-                  </IconButton>
-                )}
                 {isLoaded && user && (
                   <>
                     <Avatar
@@ -259,7 +198,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         }}
       >
         <List sx={{ pt: 2 }}>
-          {nav.map((n) => {
+          {navigation.map((n) => {
             const Icon = n.icon;
             const isActive = pathname === n.href;
             return (

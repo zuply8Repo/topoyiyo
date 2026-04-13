@@ -13,7 +13,7 @@ import {
   listUserCampaigns,
   getCampaignPrompts,
   approveAndGeneratePrompt,
-  getCreditBalance,
+  quoteCredits,
   updatePrompt,
   type Campaign,
 } from "@/lib/api";
@@ -58,7 +58,6 @@ function ReviewPageContent() {
   const [approvingPrompts, setApprovingPrompts] = React.useState<Set<string>>(
     new Set()
   );
-  const [creditBalance, setCreditBalance] = React.useState(0);
   const [mediaTypeMap, setMediaTypeMap] = React.useState<
     Record<string, "REELS" | "STORIES">
   >({});
@@ -95,14 +94,6 @@ function ReviewPageContent() {
       setLoading(false);
     }
   }, [userId, campaignIdFromUrl, router, getToken]);
-
-  React.useEffect(() => {
-    if (!userId) return;
-    getToken()
-      .then((token) => getCreditBalance(token ?? undefined))
-      .then(setCreditBalance)
-      .catch(() => setCreditBalance(0));
-  }, [userId, getToken]);
 
   // Load campaign prompts
   const loadPrompts = React.useCallback(
@@ -226,8 +217,28 @@ function ReviewPageContent() {
 
     try {
       const prompt = prompts.find((p) => p.id === promptId);
-      const required = prompt?.engine === "veo" ? 3.5 : 0;
-      if (creditBalance < required) {
+      const token = await getToken();
+      const quote = await quoteCredits(
+        prompt?.engine === "veo"
+          ? {
+              action_type: "approve_and_generate_prompt",
+              model_key: "veo",
+              dimensions: { units: 1 },
+            }
+          : {
+              action_type: "approve_and_generate_prompt",
+              model_key: "nano_banana",
+              dimensions: {
+                output_tokens: 1120,
+                input_tokens: Math.max(
+                  1,
+                  Math.ceil((prompt?.full_prompt?.length ?? 0) / 4)
+                ),
+              },
+            },
+        token ?? undefined
+      );
+      if (!quote.has_sufficient_credits) {
         router.push("/billing");
         return;
       }
@@ -235,7 +246,6 @@ function ReviewPageContent() {
       // Add to approving set
       setApprovingPrompts((prev) => new Set(prev).add(promptId));
 
-      const token = await getToken();
       // Approve and generate
       await approveAndGeneratePrompt(promptId, campaign.id, token ?? undefined);
 
@@ -245,9 +255,6 @@ function ReviewPageContent() {
           p.id === promptId ? { ...p, status: "approved" as const } : p
         )
       );
-      const balance = await getCreditBalance(token ?? undefined);
-      setCreditBalance(balance);
-
       setToast({
         msg: "Prompt approved! Generation started.",
         severity: "success",

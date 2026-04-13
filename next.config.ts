@@ -13,6 +13,10 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   turbopack: {},
+  // Video uploads via /api/studio-v2/jobs/video pass through Clerk middleware,
+  // which applies Next.js's default 10 MB body limit. Raise it to handle
+  // typical Veo/Kling output files (often 50-200 MB).
+  middlewareClientMaxBodySize: "500mb",
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

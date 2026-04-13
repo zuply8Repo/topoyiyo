@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useState, useEffect, useCallback } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import {
@@ -13,7 +13,6 @@ import {
   LinearProgress,
   Alert,
   AlertTitle,
-  Chip,
   Paper,
   Skeleton,
 } from '@mui/material';
@@ -21,7 +20,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PromptCard from '@/components/PromptCard';
 import PromptEditModal from '@/components/PromptEditModal';
 import PromptReviewModal from '@/components/PromptReviewModal';
-import { ApiError, getCampaignPrompts, updatePrompt, approveAndGeneratePrompt, getCreditBalance } from '@/lib/api';
+import { ApiError, getCampaignPrompts, updatePrompt, approveAndGeneratePrompt, quoteCredits } from '@/lib/api';
 import type { PromptResponse } from '@/lib/types';
 
 interface TabPanelProps {
@@ -58,8 +57,6 @@ function ApprovalPageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [approvingPrompts, setApprovingPrompts] = useState<Set<string>>(new Set());
-  const [creditBalance, setCreditBalance] = useState(0);
-  const veoUnitCostEur = 3.5;
 
   // Edit modal state
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -101,14 +98,6 @@ function ApprovalPageContent() {
     fetchPrompts();
   }, [campaignId, userId, isLoaded]);
 
-  useEffect(() => {
-    if (!userId) return;
-    getToken()
-      .then((token) => getCreditBalance(token ?? undefined))
-      .then(setCreditBalance)
-      .catch(() => setCreditBalance(0));
-  }, [userId, getToken]);
-
   const fetchPrompts = async () => {
     if (!campaignId || !userId) return;
 
@@ -137,8 +126,28 @@ function ApprovalPageContent() {
     
     try {
       const prompt = prompts.find((p) => p.id === promptId);
-      const required = prompt?.engine === 'veo' ? veoUnitCostEur : 0;
-      if (creditBalance < required) {
+      const token = await getToken();
+      const quote = await quoteCredits(
+        prompt?.engine === "veo"
+          ? {
+              action_type: "approve_and_generate_prompt",
+              model_key: "veo",
+              dimensions: { units: 1 },
+            }
+          : {
+              action_type: "approve_and_generate_prompt",
+              model_key: "nano_banana",
+              dimensions: {
+                output_tokens: 1120,
+                input_tokens: Math.max(
+                  1,
+                  Math.ceil((prompt?.full_prompt?.length ?? 0) / 4)
+                ),
+              },
+            },
+        token ?? undefined
+      );
+      if (!quote.has_sufficient_credits) {
         router.push('/billing');
         return;
       }
@@ -147,13 +156,10 @@ function ApprovalPageContent() {
       setApprovingPrompts((prev) => new Set(prev).add(promptId));
       
       // Approve and trigger generation
-      const token = await getToken();
       await approveAndGeneratePrompt(promptId, campaignId, token ?? undefined);
       
       // Remove the approved prompt from the UI with smooth transition
       setPrompts((prev) => prev.filter((p) => p.id !== promptId));
-      const balance = await getCreditBalance(token ?? undefined);
-      setCreditBalance(balance);
       
       // Remove from approving set
       setApprovingPrompts((prev) => {
@@ -231,7 +237,7 @@ function ApprovalPageContent() {
             : p
         )
       );
-    } catch (err) {
+    } catch {
       throw new Error('Failed to save prompt changes');
     }
   };

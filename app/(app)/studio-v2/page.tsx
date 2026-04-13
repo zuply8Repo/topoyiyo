@@ -7,6 +7,9 @@ import {
   Button,
   LinearProgress,
   Stack,
+  ToggleButton,
+  ToggleButtonGroup,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
@@ -26,6 +29,7 @@ import {
   generateStudioV2Kling,
   getStudioV2JobStatus,
   downloadStudioV2JobVideo,
+  quoteKlingOmniCredits,
 } from "@/lib/api";
 import type {
   StudioV2FieldSchema,
@@ -39,12 +43,14 @@ import {
   buildKlingMultiImagePrompt,
   resolveMentionedElementsWithTokensInOrder,
 } from "@/lib/studioV2Mentions";
+import { useRouter } from "next/navigation";
 
 const POLL_INTERVAL_MS = 5000;
 const EXAMPLE_VIDEO_URL =
   "https://drdhjfxoqaxcjolegdya.supabase.co/storage/v1/object/public/generated-videos/videos/6940b42f-6521-40af-b031-5539e3c4b6e6/story_video_3_pgzgndh9m768.mp4";
 
 const DEFAULT_MODEL_ID = "kling-v3";
+const IN_PROGRESS_JOB_STATUSES = new Set(["pending", "processing", "generating"]);
 
 /** Static model entries always shown in the model selector. */
 const STATIC_MODELS: StudioV2ModelSummary[] = [
@@ -274,22 +280,31 @@ function formStateToKlingRequest(
     ),
   };
 
-  // Multi-shot (kling-v3 only)
+  // Multi-shot (kling-v3 omni-video only)
   if (formState.multi_shot_enabled === true) {
-    const shots: KlingShotItem[] = [];
-    for (let i = 1; i <= 6; i++) {
-      const shotPrompt = formState[`shot_${i}_prompt`];
-      const shotDuration = formState[`shot_${i}_duration`];
-      if (shotPrompt && String(shotPrompt).trim()) {
-        shots.push({
-          prompt: String(shotPrompt).trim(),
-          duration: Number(shotDuration) || 5,
-        });
-      }
-    }
-    if (shots.length > 0) {
+    const shotType = (formState.shot_type as string | undefined) ?? "auto";
+    if (shotType === "auto") {
       base.multi_shot = true;
-      base.shots = shots;
+      base.shot_type = "auto";
+    } else if (shotType === "customize") {
+      const shots: KlingShotItem[] = [];
+      let shotIndex = 1;
+      for (let i = 1; i <= 6; i++) {
+        const shotPrompt = formState[`shot_${i}_prompt`];
+        const shotDuration = formState[`shot_${i}_duration`];
+        if (shotPrompt && String(shotPrompt).trim()) {
+          shots.push({
+            index: shotIndex++,
+            prompt: String(shotPrompt).trim(),
+            duration: Number(shotDuration) || 5,
+          });
+        }
+      }
+      if (shots.length > 0) {
+        base.multi_shot = true;
+        base.shot_type = "customize";
+        base.shots = shots;
+      }
     }
   }
 
@@ -324,7 +339,68 @@ async function resolveElementBase64(el: StudioElement): Promise<string | null> {
   return null;
 }
 
+function resolveMentionedKlingReferences(promptText: string, elements: StudioElement[]) {
+  const { elements: mentionedElements, tokens: mentionTokens } =
+    resolveMentionedElementsWithTokensInOrder(promptText, elements);
+  const referenceBase64List = mentionedElements
+    .map((el) => el.imageBase64)
+    .filter((value): value is string => Boolean(value));
+  const referenceUrlList = mentionedElements
+    .map((el) => el.imageUrl)
+    .filter((value): value is string => Boolean(value));
+  return {
+    mentionTokens,
+    referenceBase64List,
+    referenceUrlList,
+  };
+}
+
+function buildKlingQuoteRequest(
+  formState: Record<string, unknown>,
+  selectedModelId: string | null,
+  elements: StudioElement[],
+): StudioV2KlingGenerateRequest {
+  const promptText = String(formState.prompt ?? "");
+  const body = formStateToKlingRequest(formState, selectedModelId);
+  const { mentionTokens, referenceBase64List, referenceUrlList } =
+    resolveMentionedKlingReferences(promptText, elements);
+  const hasFirstFrame = Boolean(formState.first_frame_image);
+  const hasLastFrame = Boolean(formState.last_frame_image);
+  const hasFrame = hasFirstFrame || hasLastFrame;
+  const hasMentionedImages = referenceUrlList.length > 0 || referenceBase64List.length > 0;
+
+  if (hasFrame) {
+    body.generation_mode = "image_to_video";
+    if (selectedModelId === "kling-v3" && hasMentionedImages) {
+      body.prompt = buildKlingMultiImagePrompt(promptText, mentionTokens);
+      if (referenceUrlList.length > 0) {
+        body.reference_image_urls = referenceUrlList;
+      }
+      if (referenceBase64List.length > 0) {
+        body.reference_images_base64 = referenceBase64List;
+      }
+    }
+  } else if (selectedModelId === "kling-v3" && hasMentionedImages) {
+    body.generation_mode = "multi_image_to_video";
+    body.prompt = buildKlingMultiImagePrompt(promptText, mentionTokens);
+    if (referenceUrlList.length > 0) {
+      body.reference_image_urls = referenceUrlList;
+    }
+    if (referenceBase64List.length > 0) {
+      body.reference_images_base64 = referenceBase64List;
+    }
+  } else {
+    body.generation_mode = "text_to_video";
+    if (referenceBase64List.length > 0) {
+      body.reference_images_base64 = referenceBase64List;
+    }
+  }
+
+  return body;
+}
+
 export default function StudioV2Page() {
+  const router = useRouter();
   const { userId, isLoaded, getToken } = useAuth();
   const [models, setModels] = useState<StudioV2ModelSummary[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
@@ -338,11 +414,14 @@ export default function StudioV2Page() {
   const [jobError, setJobError] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [recoveredJobId, setRecoveredJobId] = useState<string | null>(null);
   const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string | null>(null);
   const [isDownloadingVideo, setIsDownloadingVideo] = useState(false);
   const [savedJobs, setSavedJobs] = useState<SavedJob[]>([]);
   const [enhancePrompt, setEnhancePrompt] = useState(false);
   const [elements, setElements] = useState<StudioElement[]>([]);
+  const [estimatedCredits, setEstimatedCredits] = useState<number | null>(null);
+  const [isQuotingCredits, setIsQuotingCredits] = useState(false);
 
   // Track which DB job IDs we've already saved to avoid duplicate POSTs
   const savedJobIdsRef = useRef<Set<string>>(new Set());
@@ -371,6 +450,7 @@ export default function StudioV2Page() {
             status: string;
             video_url?: string | null;
           }> };
+          const latestInProgress = jobs.find((j) => IN_PROGRESS_JOB_STATUSES.has(j.status));
           const loaded: SavedJob[] = jobs
             .filter((j) => j.status === "completed" || j.status === "failed")
             .map((j) => ({
@@ -382,6 +462,17 @@ export default function StudioV2Page() {
             }));
           setSavedJobs(loaded);
           loaded.forEach((j) => savedJobIdsRef.current.add(j.job_id));
+
+          // Recover an in-flight generation if the user left and came back.
+          if (latestInProgress) {
+            setJobId(latestInProgress.provider_job_id);
+            setJobStatus(latestInProgress.status);
+            setJobError(null);
+            setRecoveredJobId(latestInProgress.provider_job_id);
+            if (latestInProgress.video_url) setVideoUrl(latestInProgress.video_url);
+          } else {
+            setRecoveredJobId(null);
+          }
         }
 
         if (elementsRes.ok) {
@@ -491,6 +582,48 @@ export default function StudioV2Page() {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    if (!isLoaded || !userId || !schema || selectedModelId !== "kling-v3") {
+      setEstimatedCredits(null);
+      setIsQuotingCredits(false);
+      return;
+    }
+
+    const prompt = String(formState.prompt ?? "").trim();
+    if (!prompt) {
+      setEstimatedCredits(null);
+      setIsQuotingCredits(false);
+      return;
+    }
+
+    let cancelled = false;
+    const handle = window.setTimeout(async () => {
+      try {
+        setIsQuotingCredits(true);
+        const token = await getToken();
+        const quoteBody = buildKlingQuoteRequest(formState, selectedModelId, elements);
+        const quote = await quoteKlingOmniCredits(quoteBody, token ?? undefined);
+        if (!cancelled) {
+          setEstimatedCredits(Math.round(quote.required_credits));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setEstimatedCredits(null);
+        }
+        console.warn("[studio-v2] failed to quote Kling credits", error);
+      } finally {
+        if (!cancelled) {
+          setIsQuotingCredits(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [elements, formState, getToken, isLoaded, schema, selectedModelId, userId]);
 
   // ---------------------------------------------------------------------------
   // Elements — diff-based DB sync
@@ -710,6 +843,10 @@ export default function StudioV2Page() {
       }
     } catch (e) {
       if (e instanceof ApiError) {
+        if (e.code === "INSUFFICIENT_CREDITS") {
+          router.push("/billing");
+          return;
+        }
         setJobError(e.message);
       } else {
         setJobError(e instanceof Error ? e.message : "Failed to start generation");
@@ -717,7 +854,7 @@ export default function StudioV2Page() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [schema, selectedModelId, formState, elements, getToken]);
+  }, [schema, selectedModelId, formState, elements, getToken, router]);
 
   // ---------------------------------------------------------------------------
   // Poll job status
@@ -739,6 +876,18 @@ export default function StudioV2Page() {
         setJobProgress(status.progress_percentage);
         if (status.error_message) setJobError(status.error_message);
         if (status.video_url) setVideoUrl(status.video_url);
+
+        // Persist terminal status promptly so UI recovery works even after navigation.
+        if (status.status === "completed" || status.status === "failed") {
+          await fetch("/api/studio-v2/jobs", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              provider_job_id: jobId,
+              status: status.status,
+            }),
+          });
+        }
       } catch {
         // ignore poll errors
       }
@@ -913,6 +1062,11 @@ export default function StudioV2Page() {
             {loadError}
           </Alert>
         )}
+        {recoveredJobId && isGenerating && (
+          <Alert severity="info" sx={{ mx: 1.5, mt: 1.5 }}>
+            Recovered active video job. Generation resumed.
+          </Alert>
+        )}
 
         {/* Video preview */}
         <Box
@@ -992,6 +1146,70 @@ export default function StudioV2Page() {
                       elements={elements}
                       onElementsChange={handleElementsChange}
                     />
+                  ) :
+                  field.id === "multi_shot_enabled" ? (
+                    <Box key={field.id}>
+                      <Tooltip title={field.help_text ?? "Split into multiple individually prompted shots (kling-v3 omni-video only)"}>
+                        <ToggleButton
+                          value="multi_shot"
+                          selected={Boolean(formState.multi_shot_enabled)}
+                          onChange={() => handleFieldChange("multi_shot_enabled", !formState.multi_shot_enabled)}
+                          size="small"
+                          sx={{
+                            px: 1.25,
+                            py: 0.5,
+                            border: "1px solid",
+                            borderColor: "divider",
+                            borderRadius: 1,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 0.5,
+                          }}
+                        >
+                          <Typography variant="caption" fontWeight={700} sx={{ fontSize: 11, lineHeight: 1, textTransform: "none" }}>
+                            Multi-shot
+                          </Typography>
+                        </ToggleButton>
+                      </Tooltip>
+                    </Box>
+                  ) :
+                  field.id === "shot_type" ? (
+                    <Box key={field.id}>
+                      <ToggleButtonGroup
+                        value={String(formState.shot_type ?? "auto")}
+                        exclusive
+                        onChange={(_, val) => val && handleFieldChange("shot_type", val)}
+                        size="small"
+                        sx={{
+                          "& .MuiToggleButtonGroup-grouped": {
+                            border: "1px solid",
+                            borderColor: "divider",
+                            "&:not(:first-of-type)": { borderLeft: "1px solid", borderColor: "divider" },
+                          },
+                        }}
+                      >
+                        <Tooltip title="Kling automatically splits the video into shots">
+                          <ToggleButton
+                            value="auto"
+                            sx={{ px: 1.5, py: 0.5, display: "flex", alignItems: "center" }}
+                          >
+                            <Typography variant="caption" fontWeight={700} sx={{ fontSize: 11, lineHeight: 1, textTransform: "none" }}>
+                              Auto
+                            </Typography>
+                          </ToggleButton>
+                        </Tooltip>
+                        <Tooltip title="Define each shot's prompt and duration individually">
+                          <ToggleButton
+                            value="customize"
+                            sx={{ px: 1.5, py: 0.5, display: "flex", alignItems: "center" }}
+                          >
+                            <Typography variant="caption" fontWeight={700} sx={{ fontSize: 11, lineHeight: 1, textTransform: "none" }}>
+                              Custom
+                            </Typography>
+                          </ToggleButton>
+                        </Tooltip>
+                      </ToggleButtonGroup>
+                    </Box>
                   ) : (
                     <SchemaFieldRenderer
                       key={field.id}
@@ -1057,17 +1275,40 @@ export default function StudioV2Page() {
               </Typography>
             </Box>
           )}
-          <Button
-            variant="contained"
-            fullWidth
-            size="large"
-            startIcon={<AutoAwesomeIcon />}
-            onClick={handleSubmit}
-            disabled={isSubmitting || isGenerating || isDownloadingVideo || !schema}
-            sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2, py: 1.25 }}
-          >
-            {isSubmitting ? "Starting…" : isGenerating ? "Generating…" : "Generate"}
-          </Button>
+          <Stack direction="row" spacing={1.25} alignItems="stretch">
+            <Button
+              variant="contained"
+              fullWidth
+              size="large"
+              startIcon={<AutoAwesomeIcon />}
+              onClick={handleSubmit}
+              disabled={isSubmitting || isGenerating || isDownloadingVideo || !schema}
+              sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2, py: 1.25, flex: 1 }}
+            >
+              {isSubmitting ? "Starting…" : isGenerating ? "Generating…" : "Generate"}
+            </Button>
+            {selectedModelId === "kling-v3" ? (
+              <Stack
+                justifyContent="center"
+                alignItems="center"
+                sx={{
+                  minWidth: 72,
+                  px: 1.5,
+                  borderRadius: 2,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  bgcolor: "background.paper",
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
+                  Credits
+                </Typography>
+                <Typography sx={{ fontWeight: 900, lineHeight: 1.1 }}>
+                  {isQuotingCredits ? "..." : estimatedCredits ?? "--"}
+                </Typography>
+              </Stack>
+            ) : null}
+          </Stack>
         </Box>
       </Box>
 

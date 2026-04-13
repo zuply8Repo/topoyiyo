@@ -42,7 +42,7 @@ function LoadingPageContent() {
             setTimeout(() => router.push(`/approval?campaignId=${finalCampaignId}`), 2000);
           } else {
             // Fallback if campaign_id is not available
-            setTimeout(() => router.push("/dashboard"), 2000);
+            setTimeout(() => router.push("/prompt"), 2000);
           }
         } else if (jobStatus.status === "failed") {
           setIsPolling(false);

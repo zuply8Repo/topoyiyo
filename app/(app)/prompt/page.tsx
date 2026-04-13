@@ -4,11 +4,11 @@ import { clearSpecPrompt, saveSpecPrompt } from "@/lib/store";
 import {
   ApiError,
   createCampaign,
-  getCreditBalance,
   sendMarketingChatMessage,
   approveMarketingBrief,
   ChatMessage,
   VideoGenerationModel,
+  quoteCredits,
 } from "@/lib/api";
 import { useAuth } from "@clerk/nextjs";
 import SendIcon from "@mui/icons-material/Send";
@@ -17,12 +17,8 @@ import {
   Button,
   Card,
   CardContent,
-  FormControl,
   Grid,
-  InputLabel,
-  MenuItem,
   Paper,
-  Select,
   Stack,
   TextField,
   Typography,
@@ -35,7 +31,6 @@ type Msg = { id: string; role: "user" | "assistant"; text: string };
 export default function PromptPage() {
   const router = useRouter();
   const { userId, isLoaded, getToken } = useAuth();
-  const userIdParam = userId || undefined;
 
   const [input, setInput] = React.useState("");
   const msgId = React.useRef(1);
@@ -56,38 +51,13 @@ export default function PromptPage() {
   const [hasBrief, setHasBrief] = React.useState(false);
   const [briefContent, setBriefContent] = React.useState<string>();
   const [isProcessingBrief, setIsProcessingBrief] = React.useState(false);
-  const [creditBalance, setCreditBalance] = React.useState<number>(0);
   // Force VEO model for all campaigns
   const videoModel: VideoGenerationModel = "veo";
-
-  const textCostPer1kTokens = 0.15;
 
   // Clear any previously saved prompt when component mounts for a fresh start
   React.useEffect(() => {
     if (userId) clearSpecPrompt(userId);
   }, [userId]);
-
-  React.useEffect(() => {
-    if (!userId) return;
-    getToken()
-      .then((token) => getCreditBalance(token ?? undefined))
-      .then((balance) => setCreditBalance(balance))
-      .catch(() => {
-        setCreditBalance(0);
-      });
-  }, [userId, getToken]);
-
-  const estimateTextCost = React.useCallback(
-    (text: string, history: ChatMessage[]) => {
-      const allText =
-        history.map((m) => m.content).join(" ") + " " + text.trim();
-      const approxInputTokens = Math.max(1, Math.ceil(allText.length / 4));
-      const expectedOutputTokens = 600;
-      const total = approxInputTokens + expectedOutputTokens;
-      return (total / 1000) * textCostPer1kTokens;
-    },
-    []
-  );
 
   const send = async () => {
     const trimmed = input.trim();
@@ -102,8 +72,22 @@ export default function PromptPage() {
     setInput(""); // Clear input field immediately
 
     try {
-      const estimatedCost = estimateTextCost(trimmed, backendMessages);
-      if (creditBalance < estimatedCost) {
+      const token = await getToken();
+      const allText =
+        backendMessages.map((m) => m.content).join(" ") + " " + trimmed;
+      const approxInputTokens = Math.max(1, Math.ceil(allText.trim().length / 4));
+      const quote = await quoteCredits(
+        {
+          action_type: "marketing_chat_turn",
+          model_key: "marketing_text_model",
+          dimensions: {
+            input_tokens: approxInputTokens,
+            output_tokens: 600,
+          },
+        },
+        token ?? undefined
+      );
+      if (!quote.has_sufficient_credits) {
         router.push("/billing");
         setIsSending(false);
         return;
@@ -120,18 +104,12 @@ export default function PromptPage() {
           ? [...backendMessages, userMessage]
           : [userMessage];
 
-      const token = await getToken();
       // Call the marketing intake agent
       const response = await sendMarketingChatMessage(
         messagesToSend,
         conversationId,
         token ?? undefined
       );
-
-      if (userId) {
-        const balance = await getCreditBalance(token ?? undefined);
-        setCreditBalance(balance);
-      }
 
       // Update conversation state
       setConversationId(response.conversation_id);
@@ -314,9 +292,6 @@ Generated: ${new Date().toLocaleDateString()}
             videoModel,
             token ?? undefined
           );
-
-          const balance = await getCreditBalance(token ?? undefined);
-          setCreditBalance(balance);
 
           // Navigate to loading page with job_id and campaign_id
           // The loading page will redirect to approval page when prompts are ready

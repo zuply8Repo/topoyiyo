@@ -2,7 +2,7 @@
  * API client for backend campaign generation services
  */
 
-import type { ContentItem, CampaignPrompts, PromptStatus, PromptResponse, ReferenceImage, ReferenceImageType } from "./types";
+import type { ContentItem, PromptStatus, PromptResponse, ReferenceImage, ReferenceImageType } from "./types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -933,8 +933,201 @@ export interface CreditBalanceResponse {
 }
 
 export interface CreditsPricingResponse {
-  text_model_eur_per_1000_tokens: number;
-  veo_video_eur_per_unit: number;
+  marketing_chat_turn_credits: number;
+  campaign_start_credits: number;
+  veo_generation_credits: number;
+  image_generation_credits: number;
+}
+
+export interface BillingPackagePrice {
+  id: string;
+  billing_interval: BillingInterval;
+  price_eur: number;
+  credits_granted: number;
+  stripe_price_id?: string | null;
+  effective_from?: string | null;
+  effective_to?: string | null;
+}
+
+export interface BillingPlan {
+  package_code: PackageCode;
+  display_name: string;
+  feature_flags: Record<string, unknown>;
+  display_order: number;
+  prices: BillingPackagePrice[];
+}
+
+export interface ActiveBillingPackage {
+  package_code: PackageCode;
+  display_name: string;
+  billing_interval: BillingInterval;
+  status: string;
+  current_period_end?: string | null;
+  cancel_at_period_end: boolean;
+}
+
+export interface BillingOverviewResponse {
+  balance_credits: number;
+  active_package?: ActiveBillingPackage | null;
+  plans: BillingPlan[];
+  usage_examples: Array<{
+    label: string;
+    credits: number;
+    model_key: string;
+    action_type: string;
+  }>;
+}
+
+export interface AdminBillingUser {
+  user_id: string;
+  email?: string | null;
+  full_name?: string | null;
+  balance_credits: number;
+}
+
+export interface AdminManualGrantHistoryEntry {
+  id: string;
+  user_id: string;
+  email?: string | null;
+  full_name?: string | null;
+  amount_credits: number;
+  balance_after_credits: number;
+  note?: string | null;
+  granted_by_user_id?: string | null;
+  created_at?: string | null;
+}
+
+export interface AdminBillingOverviewResponse {
+  plans: BillingPlan[];
+  recent_manual_grants: AdminManualGrantHistoryEntry[];
+}
+
+export interface AdminCatalogPackage {
+  id: string;
+  package_code: PackageCode;
+  display_name: string;
+  feature_flags: Record<string, unknown>;
+  display_order: number;
+  active: boolean;
+}
+
+export interface AdminCatalogPackagePrice {
+  id: string;
+  package_id: string;
+  package_code?: PackageCode | null;
+  billing_interval: BillingInterval;
+  price_eur: number;
+  credits_granted: number;
+  stripe_price_id?: string | null;
+  effective_from?: string | null;
+  effective_to?: string | null;
+  active: boolean;
+}
+
+export interface AdminCatalogProvider {
+  id: string;
+  provider_key: string;
+  display_name: string;
+  active: boolean;
+}
+
+export interface AdminCatalogModel {
+  id: string;
+  provider_id: string;
+  provider_key?: string | null;
+  model_key: string;
+  display_name: string;
+  media_type: string;
+  active: boolean;
+}
+
+export interface AdminCatalogVariant {
+  id: string;
+  model_id: string;
+  model_key?: string | null;
+  variant_key: string;
+  display_name: string;
+  active: boolean;
+}
+
+export interface AdminCatalogPricingRule {
+  id: string;
+  action_type: string;
+  model_id: string;
+  model_key?: string | null;
+  variant_id?: string | null;
+  variant_key?: string | null;
+  package_id?: string | null;
+  package_code?: PackageCode | null;
+  billing_dimension: string;
+  unit_size: number;
+  provider_cost_eur: number;
+  sell_price_credits: number;
+  effective_from?: string | null;
+  effective_to?: string | null;
+  active: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export interface AdminCatalogPromotion {
+  id: string;
+  name: string;
+  target_scope: string;
+  package_id?: string | null;
+  package_code?: PackageCode | null;
+  model_id?: string | null;
+  model_key?: string | null;
+  variant_id?: string | null;
+  variant_key?: string | null;
+  discount_type: string;
+  discount_value: number;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  active: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export interface AdminBillingCatalogResponse {
+  packages: AdminCatalogPackage[];
+  package_prices: AdminCatalogPackagePrice[];
+  providers: AdminCatalogProvider[];
+  models: AdminCatalogModel[];
+  variants: AdminCatalogVariant[];
+  pricing_rules: AdminCatalogPricingRule[];
+  promotions: AdminCatalogPromotion[];
+}
+
+export interface BillingRuntimeSettings {
+  id: string;
+  usd_to_credit_rate: number;
+  kling_markup_percent: number;
+  active: boolean;
+}
+
+export interface KlingEndpointPricingConfig {
+  id: string;
+  endpoint_key: string;
+  mode: string;
+  has_image_input: boolean;
+  has_audio: boolean;
+  unit_type: string;
+  provider_unit_cost_usd: number;
+  effective_from?: string | null;
+  effective_to?: string | null;
+  active: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export interface CreditQuoteResponse {
+  action_type: string;
+  model_key: string;
+  variant_key?: string | null;
+  required_credits: number;
+  balance_credits?: number | null;
+  has_sufficient_credits: boolean;
+  package_code?: string | null;
+  billing_interval?: BillingInterval | null;
+  pricing_snapshot: Record<string, unknown>;
 }
 
 export async function getCreditBalance(token?: string | null): Promise<number> {
@@ -949,6 +1142,497 @@ export async function getCreditBalance(token?: string | null): Promise<number> {
 
   const data: CreditBalanceResponse = await response.json();
   return data.balance_eur;
+}
+
+export async function getBillingOverview(
+  token?: string | null
+): Promise<BillingOverviewResponse> {
+  const response = await fetch(`${API_BASE_URL}/credits/overview`, {
+    method: "GET",
+    headers: await getAuthHeaders(token),
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Failed to load billing overview");
+  }
+
+  return response.json();
+}
+
+export async function getAdminBillingOverview(
+  token?: string | null
+): Promise<AdminBillingOverviewResponse> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/overview`, {
+    method: "GET",
+    headers: await getAuthHeaders(token),
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Failed to load admin billing overview");
+  }
+
+  return response.json();
+}
+
+export async function getAdminBillingCatalog(
+  token?: string | null
+): Promise<AdminBillingCatalogResponse> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/catalog`, {
+    method: "GET",
+    headers: await getAuthHeaders(token),
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Failed to load admin billing catalog");
+  }
+
+  return response.json();
+}
+
+export async function getAdminBillingSettings(
+  token?: string | null
+): Promise<BillingRuntimeSettings> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/billing-settings`, {
+    method: "GET",
+    headers: await getAuthHeaders(token),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to load billing settings");
+  }
+  return response.json();
+}
+
+export async function updateAdminBillingSettings(
+  payload: Partial<{
+    usd_to_credit_rate: number;
+    kling_markup_percent: number;
+    active: boolean;
+  }>,
+  token?: string | null
+): Promise<BillingRuntimeSettings> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/billing-settings`, {
+    method: "PATCH",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to update billing settings");
+  }
+  return response.json();
+}
+
+export async function getAdminKlingOmniConfig(
+  token?: string | null
+): Promise<KlingEndpointPricingConfig[]> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/kling-omni-config`, {
+    method: "GET",
+    headers: await getAuthHeaders(token),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to load Kling Omni pricing config");
+  }
+  return response.json();
+}
+
+export async function createAdminKlingOmniConfig(
+  payload: {
+    endpoint_key: string;
+    mode: string;
+    has_image_input: boolean;
+    has_audio: boolean;
+    unit_type: string;
+    provider_unit_cost_usd: number;
+    effective_from?: string | null;
+    effective_to?: string | null;
+    active?: boolean;
+    metadata?: Record<string, unknown>;
+  },
+  token?: string | null
+): Promise<KlingEndpointPricingConfig> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/kling-omni-config`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to create Kling Omni pricing config");
+  }
+  return response.json();
+}
+
+export async function updateAdminKlingOmniConfig(
+  id: string,
+  payload: Partial<{
+    endpoint_key: string;
+    mode: string;
+    has_image_input: boolean;
+    has_audio: boolean;
+    unit_type: string;
+    provider_unit_cost_usd: number;
+    effective_from?: string | null;
+    effective_to?: string | null;
+    active: boolean;
+    metadata: Record<string, unknown>;
+  }>,
+  token?: string | null
+): Promise<KlingEndpointPricingConfig> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/kling-omni-config/${id}`, {
+    method: "PATCH",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to update Kling Omni pricing config");
+  }
+  return response.json();
+}
+
+export async function searchAdminBillingUsers(
+  query: string,
+  token?: string | null
+): Promise<AdminBillingUser[]> {
+  const response = await fetch(
+    `${API_BASE_URL}/credits/admin/users?query=${encodeURIComponent(query)}`,
+    {
+      method: "GET",
+      headers: await getAuthHeaders(token),
+    }
+  );
+
+  if (!response.ok) {
+    await throwApiError(response, "Failed to search billing users");
+  }
+
+  return response.json();
+}
+
+export async function grantAdminCredits(
+  payload: { user_id: string; amount_credits: number; note: string },
+  token?: string | null
+): Promise<{ user_id: string; amount_credits: number; balance_credits: number; note: string }> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/grants`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Failed to grant admin credits");
+  }
+
+  return response.json();
+}
+
+export async function createAdminPackagePrice(
+  payload: {
+    package_id: string;
+    billing_interval: BillingInterval;
+    price_eur: number;
+    credits_granted: number;
+    stripe_price_id?: string | null;
+    effective_from?: string | null;
+    effective_to?: string | null;
+    active?: boolean;
+  },
+  token?: string | null
+): Promise<AdminCatalogPackagePrice> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/package-prices`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to create package price");
+  }
+  return response.json();
+}
+
+export async function updateAdminPackagePrice(
+  id: string,
+  payload: Partial<{
+    billing_interval: BillingInterval;
+    price_eur: number;
+    credits_granted: number;
+    stripe_price_id?: string | null;
+    effective_from?: string | null;
+    effective_to?: string | null;
+    active: boolean;
+  }>,
+  token?: string | null
+): Promise<AdminCatalogPackagePrice> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/package-prices/${id}`, {
+    method: "PATCH",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to update package price");
+  }
+  return response.json();
+}
+
+export async function createAdminProvider(
+  payload: { provider_key: string; display_name: string; active?: boolean },
+  token?: string | null
+): Promise<AdminCatalogProvider> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/providers`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to create provider");
+  }
+  return response.json();
+}
+
+export async function updateAdminProvider(
+  id: string,
+  payload: Partial<{ provider_key: string; display_name: string; active: boolean }>,
+  token?: string | null
+): Promise<AdminCatalogProvider> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/providers/${id}`, {
+    method: "PATCH",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to update provider");
+  }
+  return response.json();
+}
+
+export async function createAdminModel(
+  payload: {
+    provider_id: string;
+    model_key: string;
+    display_name: string;
+    media_type: string;
+    active?: boolean;
+  },
+  token?: string | null
+): Promise<AdminCatalogModel> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/models`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to create model");
+  }
+  return response.json();
+}
+
+export async function updateAdminModel(
+  id: string,
+  payload: Partial<{
+    provider_id: string;
+    model_key: string;
+    display_name: string;
+    media_type: string;
+    active: boolean;
+  }>,
+  token?: string | null
+): Promise<AdminCatalogModel> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/models/${id}`, {
+    method: "PATCH",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to update model");
+  }
+  return response.json();
+}
+
+export async function createAdminVariant(
+  payload: { model_id: string; variant_key: string; display_name: string; active?: boolean },
+  token?: string | null
+): Promise<AdminCatalogVariant> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/variants`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to create variant");
+  }
+  return response.json();
+}
+
+export async function updateAdminVariant(
+  id: string,
+  payload: Partial<{
+    model_id: string;
+    variant_key: string;
+    display_name: string;
+    active: boolean;
+  }>,
+  token?: string | null
+): Promise<AdminCatalogVariant> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/variants/${id}`, {
+    method: "PATCH",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to update variant");
+  }
+  return response.json();
+}
+
+export async function createAdminPricingRule(
+  payload: {
+    action_type: string;
+    model_id: string;
+    variant_id?: string | null;
+    package_id?: string | null;
+    billing_dimension: string;
+    unit_size: number;
+    provider_cost_eur: number;
+    sell_price_credits: number;
+    effective_from?: string | null;
+    effective_to?: string | null;
+    active?: boolean;
+    metadata?: Record<string, unknown>;
+  },
+  token?: string | null
+): Promise<AdminCatalogPricingRule> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/pricing-rules`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to create pricing rule");
+  }
+  return response.json();
+}
+
+export async function updateAdminPricingRule(
+  id: string,
+  payload: Partial<{
+    action_type: string;
+    model_id: string;
+    variant_id?: string | null;
+    package_id?: string | null;
+    billing_dimension: string;
+    unit_size: number;
+    provider_cost_eur: number;
+    sell_price_credits: number;
+    effective_from?: string | null;
+    effective_to?: string | null;
+    active: boolean;
+    metadata: Record<string, unknown>;
+  }>,
+  token?: string | null
+): Promise<AdminCatalogPricingRule> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/pricing-rules/${id}`, {
+    method: "PATCH",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to update pricing rule");
+  }
+  return response.json();
+}
+
+export async function createAdminPromotion(
+  payload: {
+    name: string;
+    target_scope: string;
+    package_id?: string | null;
+    model_id?: string | null;
+    variant_id?: string | null;
+    discount_type: string;
+    discount_value: number;
+    starts_at: string;
+    ends_at: string;
+    active?: boolean;
+    metadata?: Record<string, unknown>;
+  },
+  token?: string | null
+): Promise<AdminCatalogPromotion> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/promotions`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to create promotion");
+  }
+  return response.json();
+}
+
+export async function updateAdminPromotion(
+  id: string,
+  payload: Partial<{
+    name: string;
+    target_scope: string;
+    package_id?: string | null;
+    model_id?: string | null;
+    variant_id?: string | null;
+    discount_type: string;
+    discount_value: number;
+    starts_at: string;
+    ends_at: string;
+    active: boolean;
+    metadata: Record<string, unknown>;
+  }>,
+  token?: string | null
+): Promise<AdminCatalogPromotion> {
+  const response = await fetch(`${API_BASE_URL}/credits/admin/promotions/${id}`, {
+    method: "PATCH",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to update promotion");
+  }
+  return response.json();
+}
+
+export async function quoteCredits(
+  payload: {
+    action_type: string;
+    model_key: string;
+    variant_key?: string;
+    dimensions?: Record<string, unknown>;
+  },
+  token?: string | null
+): Promise<CreditQuoteResponse> {
+  const response = await fetch(`${API_BASE_URL}/credits/quote`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify({
+      action_type: payload.action_type,
+      model_key: payload.model_key,
+      variant_key: payload.variant_key,
+      dimensions: payload.dimensions ?? {},
+    }),
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Failed to quote credits");
+  }
+
+  return response.json();
+}
+
+export async function quoteKlingOmniCredits(
+  payload: StudioV2KlingGenerateRequest,
+  token?: string | null
+): Promise<CreditQuoteResponse> {
+  const response = await fetch(`${API_BASE_URL}/credits/kling-omni/quote`, {
+    method: "POST",
+    headers: await getAuthHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    await throwApiError(response, "Failed to quote Kling Omni credits");
+  }
+  return response.json();
 }
 
 export async function getCreditsPricing(): Promise<CreditsPricingResponse> {
@@ -988,16 +1672,21 @@ export async function topUpCredits(
 // Payments API
 // ============================================================================
 
-export type PackageId = "creator" | "growth" | "agency";
+export type PackageCode = "curiosity" | "content_creator" | "pro" | "agency";
+export type BillingInterval = "monthly_recurring" | "annual_recurring";
 
 export async function createCheckoutSession(
-  packageId: PackageId,
+  packageCode: PackageCode,
+  billingInterval: BillingInterval,
   token?: string | null
 ): Promise<string> {
   const response = await fetch(`${API_BASE_URL}/payments/create-checkout-session`, {
     method: "POST",
     headers: await getAuthHeaders(token),
-    body: JSON.stringify({ package_id: packageId }),
+    body: JSON.stringify({
+      package_code: packageCode,
+      billing_interval: billingInterval,
+    }),
   });
 
   if (!response.ok) {
@@ -1126,6 +1815,7 @@ export async function generateStudioV2Veo(
 }
 
 export interface KlingShotItem {
+  index: number;
   prompt: string;
   duration: number;
 }
@@ -1147,6 +1837,7 @@ export interface StudioV2KlingGenerateRequest {
   mode?: "std" | "pro";
   generate_audio?: boolean;
   multi_shot?: boolean;
+  shot_type?: "auto" | "customize";
   shots?: KlingShotItem[];
 }
 
